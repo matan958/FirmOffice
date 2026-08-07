@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # The Firestore emulator is a Java process; the rules tests need it.
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Install
+        run: npm run install:all
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build
+
+      - name: Security rules tests
+        run: npm run rules:test
+
+  deploy:
+    needs: verify
+    # Gated off until the Firebase project actually exists. Deploying needs the six
+    # VITE_FIREBASE_* secrets, FIREBASE_SERVICE_ACCOUNT, and a real project ID in
+    # .firebaserc — without them this job fails on every push and buries genuine
+    # `verify` failures in noise.
+    #
+    # To enable: set repository variable DEPLOY_ENABLED to "true"
+    #   Settings → Secrets and variables → Actions → Variables tab
+    # A repo *variable* rather than a secret because the `secrets` context is not
+    # available in a job-level `if`, but `vars` is.
+    if: >-
+      github.ref == 'refs/heads/main'
+      && github.event_name == 'push'
+      && vars.DEPLOY_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install
+        run: npm run install:all
+
+      - name: Build
+        run: npm run build
+        env:
+          VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
+          VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
+          VITE_FIREBASE_PROJECT_ID: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+          VITE_FIREBASE_STORAGE_BUCKET: ${{ secrets.VITE_FIREBASE_STORAGE_BUCKET }}
+          VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+          VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
+          VITE_USE_EMULATORS: 'false'
+
+      # Create the FIREBASE_SERVICE_ACCOUNT secret from a service account JSON key
+      # holding "Firebase Admin", "Cloud Functions Admin", "Cloud Datastore Owner"
+      # and "Service Account User".
+      - name: Write service account key
+        run: echo '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}' > "$RUNNER_TEMP/sa.json"
+
+      - name: Deploy to Firebase
+        run: npx firebase-tools deploy --only hosting,functions,firestore,storage --non-interactive
+        env:
+          GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/sa.json
+          FIREBASE_PROJECT: ${{ secrets.VITE_FIREBASE_PROJECT_ID }}
+
+      - name: Remove service account key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/sa.json"

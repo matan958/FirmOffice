@@ -1,0 +1,144 @@
+# FirmOffice
+
+CPA document ingestion & management system. Clients submit documents through several
+channels; accountants work them from a single Inbox-style dashboard with the original
+preview side-by-side with OCR-extracted text.
+
+Full architecture, schema rationale, and edge-case handling: **[`docs/PLAN.md`](docs/PLAN.md)**.
+
+**Status: M0 complete** — scaffold, security rules, and toolchain verified. No feature
+code yet.
+
+---
+
+## Layout
+
+```
+shared/      Canonical data model. The ONE definition of every Firestore shape;
+             imported verbatim by both web/ and functions/.
+web/         Vite + React + TS SPA (Client Portal + Accountant Dashboard).
+functions/   Cloud Functions Gen 2 (Node 22, ESM) + the security-rules test suite.
+scripts/     One-off ops scripts.
+```
+
+`shared/` is compiled into `functions/lib` via `rootDir: ".."` rather than linked as an
+npm workspace — the Functions deploy packager does not follow workspace symlinks.
+`web/` reaches it through the `@shared` Vite alias.
+
+## Two status axes
+
+The single most load-bearing modelling decision, so it is worth stating up front:
+
+| Field | Values | Purpose |
+|---|---|---|
+| `workflowStatus` | `pending` · `in_progress` · `processed` | Human state. **This alone** feeds the metrics bar. |
+| `pipelineStatus` | `uploading` … `ocr_done` · `ocr_failed` · `rejected` | Machine state. Drives a small chip on the document card. |
+
+A document is `pending` from the moment it lands, *regardless of OCR outcome*. Nothing
+is ever invisible to the firm because a machine step failed.
+
+---
+
+## Local development
+
+Requires **Node 22+** and a **JDK** (the Firestore and Storage emulators are Java).
+
+```bash
+npm run install:all              # all four packages
+cp web/.env.example web/.env.local   # then fill it in
+
+npm run emulators                # terminal 1 — Auth, Firestore, Storage, Functions, Tasks
+npm run dev                      # terminal 2 — Vite on :5173
+```
+
+Open <http://localhost:5173/health>. It should report the project ID, `Emulator suite`,
+and a reachable Functions callable. Emulator UI is on <http://localhost:4000>.
+
+| Command | Does |
+|---|---|
+| `npm run typecheck` | All three packages |
+| `npm run build` | Functions `tsc` + web production bundle |
+| `npm run rules:test` | Boots the Firestore emulator and runs the rules suite |
+| `npm run deploy` | Build, then deploy everything |
+| `npm run deploy:rules` | Rules + indexes only (fast, safe iteration) |
+| `npm run set-cors` | Applies `cors.json` to the Storage bucket |
+
+### Windows note
+
+The Firestore emulator's JVM sometimes survives `SIGINT` and keeps port 8080, which
+makes the next run fail with *"port taken"*. Clear it with:
+
+```powershell
+Get-NetTCPConnection -LocalPort 8080 -State Listen |
+  ForEach-Object { Stop-Process -Id $_.OwningProcess -Force }
+```
+
+A `NullPointerException` from the rules runtime **during shutdown** is cosmetic — the
+runtime's stdin closes before its read loop ends. It is not a rules error.
+
+---
+
+## ⚠️ Manual setup — required before anything can be deployed
+
+None of this can be scripted; it needs a Google account with billing.
+
+1. **Create the Firebase project.** Note the project ID.
+2. **Upgrade to the Blaze plan.** Mandatory: Cloud Functions cannot make outbound calls
+   (Vision, Gmail, Meta) on Spark.
+3. **Set a budget alert** in Cloud Billing before anything else runs. Vision is roughly
+   $1.50 per 1000 pages and a misconfigured poller can reprocess an entire inbox.
+4. **Enable APIs** in the Cloud Console: Cloud Vision, Cloud Tasks, Cloud Scheduler,
+   Secret Manager, Eventarc, Cloud Build. (Gmail API in M4.)
+5. **Create Firestore** (Native mode) and a **Storage bucket** — put both in the same
+   region as `FUNCTIONS_REGION` in `shared/src/constants.ts` (`us-central1`).
+6. **Register a Web app**, then paste the config into `web/.env.local`.
+7. **Put the real project ID in `.firebaserc`** (replacing `REPLACE_WITH_…`).
+8. **Grant the signing permission.** Signed preview URLs fail without it, and the error
+   message does not say so:
+   ```bash
+   gcloud iam service-accounts add-iam-policy-binding \
+     <PROJECT_NUMBER>-compute@developer.gserviceaccount.com \
+     --member="serviceAccount:<PROJECT_NUMBER>-compute@developer.gserviceaccount.com" \
+     --role="roles/iam.serviceAccountTokenCreator" --project=<PROJECT_ID>
+   ```
+9. **Apply bucket CORS.** `react-pdf` fetches signed URLs cross-origin with byte-range
+   requests; without this the viewer fails pointing nowhere near the cause. Edit the
+   origins in `cors.json`, then either `npm run set-cors` (needs
+   `gcloud auth application-default login`) or, from **Cloud Shell**:
+   ```bash
+   gcloud storage buckets update gs://<BUCKET> --cors-file=cors.json
+   ```
+10. **Deploy indexes and rules first:** `npm run deploy:rules`.
+11. **CI secrets** (GitHub → Settings → Secrets and variables → Actions): the six
+    `VITE_FIREBASE_*` values plus `FIREBASE_SERVICE_ACCOUNT` (a service-account JSON key
+    with Firebase Admin, Cloud Functions Admin, Cloud Datastore Owner, Service Account
+    User). Then, on the **Variables** tab, set `DEPLOY_ENABLED` to `true` — CI's deploy
+    job is gated off until you do, so `verify` runs on every push but nothing tries to
+    deploy into a project that does not exist yet.
+
+Storage lifecycle rules (`ocr-output/` 7d, `quarantine/` 30d) and the Firestore TTL
+policy on `processedMessages` are set in the console; they matter from M2 onward.
+
+---
+
+## Open items
+
+Decisions the plan deliberately left to you, with the milestone that forces them:
+
+| # | Item | Needed by |
+|---|---|---|
+| 1 | Meta Business verification — **start the paperwork early**, 1–2 weeks of calendar time | before M5 |
+| 2 | HEIC: convert on ingest, or reject? Vision cannot read it and iPhones send it constantly | M2 |
+| 3 | Search: Typesense/Algolia extension vs. a denormalized `searchTokens` array. Firestore has no full-text search, and retrofitting means reprocessing every document | M2 |
+| 4 | Gmail auth: Workspace domain-wide delegation, or a plain mailbox + OAuth refresh token in Secret Manager? | M4 |
+| 5 | Firm timezone + expected daily document volume | M2 |
+
+## Roadmap
+
+- [x] **M0** Foundations — scaffold, rules, emulators, CI
+- [ ] **M1** Auth & RBAC — custom claims, route guards, full rules test matrix
+- [ ] **M2** Web upload + OCR core — `ingestDocument()`, Vision, counters, audit trail
+- [ ] **M3** Accountant Dashboard — inbox, split viewer, status management *(shippable)*
+- [ ] **M4** Gmail ingestion — poller, mapping ladder, learning loop
+- [ ] **M5** WhatsApp ingestion
+- [ ] **M6** Hardening — janitor, alerting, structured extraction, search, retention

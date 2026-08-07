@@ -1,0 +1,128 @@
+rules_version = '2';
+
+// FirmOffice — Firestore security rules
+//
+// Authorization source of truth is the ID token's CUSTOM CLAIMS (`role`, `clientId`),
+// never a /users document. Reading a doc inside rules costs a billed read and adds
+// latency to every single operation.
+//
+// The Admin SDK (all Cloud Functions) bypasses these rules entirely, so anything the
+// server needs to write is denied here without consequence.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── helpers ──────────────────────────────────────────────────────────────
+
+    function isSignedIn()   { return request.auth != null; }
+    function role()         { return request.auth.token.get('role', ''); }
+    function isAdmin()      { return isSignedIn() && role() == 'admin'; }
+    function isAccountant() { return isSignedIn() && (role() == 'accountant' || role() == 'admin'); }
+    function isClient()     { return isSignedIn() && role() == 'client'; }
+    function myClientId()   { return request.auth.token.get('clientId', ''); }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    // ── users ────────────────────────────────────────────────────────────────
+    // Mirror of the custom claims, for UI display only. Written by the server.
+
+    match /users/{uid} {
+      allow read:  if isAdmin() || (isSignedIn() && request.auth.uid == uid);
+      allow write: if false;
+    }
+
+    // ── clients ──────────────────────────────────────────────────────────────
+
+    match /clients/{clientId} {
+      allow read: if isAccountant()
+                  || (isClient() && clientId == myClientId());
+      allow create, update: if isAccountant();
+      allow delete: if false;   // archive via status, never hard-delete
+    }
+
+    // ── clientIdentifiers ────────────────────────────────────────────────────
+    // The Gmail/WhatsApp → clientId mapping table. Doc ID IS the normalized
+    // identifier (e.g. "email:john@acme.com"), which gives atomic uniqueness.
+    // Clients must never see the firm's full identifier map.
+
+    match /clientIdentifiers/{key} {
+      allow read:           if isAccountant();
+      allow create, update: if isAccountant();
+      allow delete:         if isAdmin();
+    }
+
+    // ── documents ────────────────────────────────────────────────────────────
+
+    match /documents/{docId} {
+
+      allow read: if isAccountant()
+                  || (isClient()
+                      && resource.data.clientId == myClientId()
+                      && resource.data.get('deletedAt', null) == null);
+
+      // A client may only open a web upload in its initial state. Every other
+      // field — ocr, clientMatch, error, assignedAccountantUid — is server-written.
+      allow create: if isClient()
+        && request.resource.data.clientId       == myClientId()
+        && request.resource.data.channel        == 'web'
+        && request.resource.data.workflowStatus == 'pending'
+        && request.resource.data.pipelineStatus == 'uploading'
+        && request.resource.data.uploadedByUid  == request.auth.uid
+        && request.resource.data.get('deletedAt', null) == null
+        && request.resource.data.keys().hasOnly([
+             'clientId', 'clientNameCache', 'channel', 'source', 'file',
+             'pipelineStatus', 'workflowStatus', 'uploadedByUid',
+             'receivedAt', 'createdAt', 'updatedAt', 'deletedAt'
+           ])
+        && request.resource.data.file.sizeBytes is int
+        && request.resource.data.file.sizeBytes > 0
+        && request.resource.data.file.sizeBytes <= 50 * 1024 * 1024;
+
+      // Accountants may only move workflow fields. They can never rewrite OCR
+      // output, the file record, or the channel/source provenance.
+      allow update: if isAccountant()
+        && changedKeys().hasOnly([
+             'workflowStatus', 'assignedAccountantUid', 'clientId',
+             'clientNameCache', 'clientMatch', 'extracted', 'updatedAt'
+           ])
+        && request.resource.data.workflowStatus in ['pending', 'in_progress', 'processed'];
+
+      allow delete: if false;   // soft delete only, via a callable
+
+      // Per-page OCR text. Read by the accountant split viewer; the Client Portal
+      // is upload-only and never needs it.
+      match /pages/{pageNumber} {
+        allow read:  if isAccountant();
+        allow write: if false;
+      }
+
+      // Append-only audit trail. Server-written; immutable by design.
+      match /events/{eventId} {
+        allow read:  if isAccountant();
+        allow write: if false;
+      }
+    }
+
+    // ── metrics ──────────────────────────────────────────────────────────────
+    // Single doc backing the real-time status badges. One onSnapshot listener.
+
+    match /metrics/{docId} {
+      allow read:  if isAccountant();
+      allow write: if false;
+    }
+
+    // ── server-only operational collections ──────────────────────────────────
+
+    match /ingestState/{docId}       { allow read: if isAdmin(); allow write: if false; }
+    match /failedIngestions/{docId}  { allow read: if isAdmin(); allow write: if false; }
+    match /processedMessages/{docId} { allow read, write: if false; }
+
+    // Anything not matched above is denied by default — this block is documentation,
+    // not enforcement (rules are permissive-union; a `false` never revokes an allow).
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

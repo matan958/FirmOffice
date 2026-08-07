@@ -1,0 +1,49 @@
+rules_version = '2';
+
+// FirmOffice — Cloud Storage security rules
+//
+// Design note: NOBODY reads the bucket through these rules — not even accountants.
+// Document previews are served via short-lived V4 signed URLs minted by the
+// `getDocumentUrl` callable, which checks the caller's claim and writes a `viewed`
+// entry to the document's audit trail. That makes "who opened which client's file,
+// and when" answerable, which a CPA firm eventually needs.
+//
+// contentType below is CLIENT-SUPPLIED and therefore untrusted. It is a cheap first
+// filter only; the Storage trigger re-sniffs the actual magic bytes server-side and
+// quarantines anything that lied.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function isSignedIn() { return request.auth != null; }
+    function role()       { return request.auth.token.get('role', ''); }
+    function isClient()   { return isSignedIn() && role() == 'client'; }
+    function myClientId() { return request.auth.token.get('clientId', ''); }
+
+    // Client Portal uploads. Create-only, into the client's own prefix, at the
+    // exact path the SPA already reserved a Firestore document for.
+    match /incoming/{clientId}/{docId}/{fileName} {
+      allow read: if false;
+
+      allow create: if isClient()
+        && clientId == myClientId()
+        && request.resource.size > 0
+        && request.resource.size <= 50 * 1024 * 1024
+        && request.resource.contentType.matches(
+             'application/pdf'
+             + '|image/(jpeg|png|webp|tiff|bmp|gif|heic|heif)'
+             + '|text/csv'
+             + '|application/vnd\\.openxmlformats-officedocument\\..*'
+             + '|application/vnd\\.ms-excel'
+           );
+
+      allow update, delete: if false;
+    }
+
+    // thumbnails/, ocr-output/, ocr-text/, quarantine/ and everything else are
+    // written and read exclusively by the Admin SDK, which bypasses these rules.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

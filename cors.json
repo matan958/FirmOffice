@@ -1,0 +1,13 @@
+[
+  {
+    "origin": [
+      "http://localhost:5173",
+      "http://localhost:5000",
+      "https://REPLACE_WITH_YOUR_FIREBASE_PROJECT_ID.web.app",
+      "https://REPLACE_WITH_YOUR_FIREBASE_PROJECT_ID.firebaseapp.com"
+    ],
+    "method": ["GET", "HEAD"],
+    "responseHeader": ["Content-Type", "Content-Range", "Accept-Ranges", "Content-Length"],
+    "maxAgeSeconds": 3600
+  }
+]

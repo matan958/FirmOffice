@@ -1,0 +1,37 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+# anchored: a bare `lib/` would also swallow functions/src/lib and web/src/lib,
+# which are source directories
+/functions/lib/
+*.tsbuildinfo
+
+# env / secrets — NEVER commit these
+.env
+.env.local
+.env.*.local
+*-service-account*.json
+serviceAccountKey.json
+
+# firebase
+.firebase/
+firebase-debug.log
+firebase-debug.*.log
+firestore-debug.log
+database-debug.log
+pubsub-debug.log
+ui-debug.log
+dataconnect-debug.log
+.emulator-data/
+
+# editors / os
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.DS_Store
+Thumbs.db
+
+# test / coverage
+coverage/

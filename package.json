@@ -1,0 +1,26 @@
+{
+  "name": "firmoffice",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "CPA document ingestion & management system",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "install:all": "npm install && npm --prefix shared install && npm --prefix web install && npm --prefix functions install",
+    "dev": "npm --prefix web run dev",
+    "emulators": "firebase emulators:start --import=./.emulator-data --export-on-exit=./.emulator-data",
+    "build": "npm --prefix functions run build && npm --prefix web run build",
+    "typecheck": "npm --prefix shared run typecheck && npm --prefix web run typecheck && npm --prefix functions run typecheck",
+    "rules:test": "firebase emulators:exec --project demo-firmoffice --only firestore \"npm --prefix functions run test:rules\"",
+    "deploy": "npm run build && firebase deploy",
+    "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes,storage",
+    "set-cors": "node scripts/set-cors.mjs"
+  },
+  "devDependencies": {
+    "@google-cloud/storage": "^7.21.0",
+    "firebase-tools": "^15.25.1",
+    "typescript": "^7.0.2"
+  }
+}

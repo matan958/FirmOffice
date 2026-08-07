@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noImplicitOverride": true,
+    "skipLibCheck": true,
+    "sourceMap": true,
+    "forceConsistentCasingInFileNames": true,
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
+
+    // rootDir is the repo root so `shared/` compiles alongside `functions/`.
+    // Output lands at lib/functions/src/index.js and lib/shared/src/*.js, which is
+    // why package.json#main points there. This avoids npm-workspace symlinks, which
+    // the Functions deploy packager does not follow.
+    "rootDir": "..",
+    "outDir": "lib"
+  },
+  "include": ["src/**/*.ts", "../shared/src/**/*.ts"],
+  "exclude": ["tests/**/*"]
+}
