@@ -50,6 +50,13 @@ export { onDocumentChanged } from './metrics/counters.js';
 export { ocrTask } from './ocr/task.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
+// M3 — Accountant Dashboard
+// ─────────────────────────────────────────────────────────────────────────────
+
+export { getDocumentUrl } from './admin/getDocumentUrl.js';
+export { retryOcr } from './ocr/retry.js';
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Milestone map — each export below arrives with its milestone.
 //
 //   M2  ingest/web.ts               onObjectFinalized('incoming/**')

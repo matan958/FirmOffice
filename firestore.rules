@@ -88,12 +88,21 @@ service cloud.firestore {
 
       // Accountants may only move workflow fields. They can never rewrite OCR
       // output, the file record, or the channel/source provenance.
+      //
+      // statusActorUid is client-written but PINNED to the caller's own uid: that is
+      // what lets the audit trail name a real person instead of recording every change
+      // as `system`. An accountant cannot attribute their action to a colleague.
       allow update: if isAccountant()
         && changedKeys().hasOnly([
              'workflowStatus', 'assignedAccountantUid', 'clientId',
-             'clientNameCache', 'clientMatch', 'extracted', 'updatedAt'
+             'clientNameCache', 'clientMatch', 'extracted', 'updatedAt',
+             'statusActorUid'
            ])
-        && request.resource.data.workflowStatus in ['pending', 'in_progress', 'processed'];
+        && request.resource.data.workflowStatus in ['pending', 'in_progress', 'processed']
+        && (
+             !changedKeys().hasAny(['workflowStatus'])
+             || request.resource.data.statusActorUid == request.auth.uid
+           );
 
       allow delete: if false;   // soft delete only, via a callable
 

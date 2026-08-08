@@ -187,10 +187,43 @@ describe('documents — client create constraints', () => {
 });
 
 describe('documents — update constraints', () => {
-  it('lets an accountant move workflowStatus', async () => {
+  it('lets an accountant move workflowStatus when they claim it as themselves', async () => {
     await assertSucceeds(
-      updateDoc(doc(asAccountant(), 'documents/doc-a'), {
+      updateDoc(doc(asAccountant('acct-1'), 'documents/doc-a'), {
         workflowStatus: 'in_progress',
+        statusActorUid: 'acct-1',
+        updatedAt: new Date(),
+      }),
+    );
+  });
+
+  it('denies a status change with no actor recorded', async () => {
+    // Otherwise the audit trail says `system` and "who marked this processed" — a
+    // question a CPA firm eventually has to answer — has no answer.
+    await assertFails(
+      updateDoc(doc(asAccountant('acct-1'), 'documents/doc-a'), {
+        workflowStatus: 'processed',
+        updatedAt: new Date(),
+      }),
+    );
+  });
+
+  it("denies attributing a status change to a colleague", async () => {
+    // The whole reason the field is trustworthy: it is pinned to the caller's uid.
+    await assertFails(
+      updateDoc(doc(asAccountant('acct-1'), 'documents/doc-a'), {
+        workflowStatus: 'processed',
+        statusActorUid: 'acct-2',
+        updatedAt: new Date(),
+      }),
+    );
+  });
+
+  it('allows reassigning a client without an actor, since status did not move', async () => {
+    await assertSucceeds(
+      updateDoc(doc(asAccountant('acct-1'), 'documents/doc-a'), {
+        clientId: CLIENT_B,
+        clientNameCache: 'Globex',
         updatedAt: new Date(),
       }),
     );

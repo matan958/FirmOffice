@@ -58,12 +58,15 @@ export const onDocumentChanged = onDocumentWritten(
         .collection(SUBCOLLECTIONS.events)
         .doc(event.id),
       {
-        // TODO(M3): accountant-driven status changes should carry the acting uid. The
-        // document does not record who wrote it, so route those through a callable
-        // rather than a direct client write — otherwise this stays 'system' and the
-        // trail cannot answer "who marked this processed", which is the whole point.
         type: change.eventType ?? 'status_changed',
-        actor: { type: 'system' },
+        // A human moved the status only if statusActorUid changed with it. The rules
+        // pin that field to the writer's own uid, so it cannot name someone else.
+        // Machine transitions (ingest, OCR) leave it null and stay attributed to the
+        // system, which is honest — no person touched them.
+        actor:
+          change.eventType === 'status_changed' && after?.statusActorUid
+            ? { type: 'user', uid: after.statusActorUid }
+            : { type: 'system' },
         from: change.from,
         to: change.to,
         at: FieldValue.serverTimestamp(),

@@ -284,6 +284,15 @@ export interface DocumentDoc {
   pipelineStatus: PipelineStatus;
   workflowStatus: WorkflowStatus;
   assignedAccountantUid: string | null;
+  /**
+   * Who last moved workflowStatus. Written by the client, but the security rules
+   * require it to equal the caller's own uid, so it cannot be forged — which is what
+   * makes it usable as the audit trail's actor.
+   *
+   * Without this the trail records every status change as `system`, and "who marked
+   * this processed" — a question a CPA firm eventually has to answer — is unanswerable.
+   */
+  statusActorUid: string | null;
 
   // ── results ──
   ocr: OcrResult | null;
@@ -428,6 +437,13 @@ export interface CreateClientResponse {
 
 export interface RetryOcrRequest {
   docId: string;
+}
+
+export interface RetryOcrResponse {
+  docId: string;
+  /** False when the document was already succeeding and nothing needed re-running. */
+  requeued: boolean;
+  reason?: string;
 }
 
 export interface HealthCheckResponse {
