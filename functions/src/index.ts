@@ -51,6 +51,12 @@ export { setUserRole } from './admin/setUserRole.js';
 export { registerClient } from './auth/registerClient.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
+// M2 — Clients & ingestion
+// ─────────────────────────────────────────────────────────────────────────────
+
+export { createClient } from './admin/createClient.js';
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Milestone map — each export below arrives with its milestone.
 //
 //   M2  ingest/web.ts               onObjectFinalized('incoming/**')

@@ -132,6 +132,43 @@ export function identifierKey(type: string, value: string): string {
   return `${type}:${value}`;
 }
 
+/**
+ * Canonical form of an email address for use as an identifier key.
+ *
+ * Lowercase, strip any `+tag`, and strip dots ONLY for Gmail — Gmail treats
+ * `j.smith@` and `jsmith@` as the same mailbox, but most other providers do not, so
+ * stripping dots everywhere would collapse genuinely different people onto one client.
+ *
+ * Note this is for the exact-address rung. The PUBLIC_EMAIL_DOMAINS blocklist applies
+ * to `domain:` identifiers only — an exact `email:` match on a gmail.com address is
+ * perfectly legitimate.
+ */
+export function normalizeEmail(raw: string): string {
+  const trimmed = raw.trim().toLowerCase();
+  const at = trimmed.lastIndexOf('@');
+  if (at <= 0) return trimmed;
+
+  let local = trimmed.slice(0, at);
+  const domain = trimmed.slice(at + 1);
+
+  const plus = local.indexOf('+');
+  if (plus >= 0) local = local.slice(0, plus);
+
+  if (domain === 'gmail.com' || domain === 'googlemail.com') {
+    local = local.replaceAll('.', '');
+  }
+  return `${local}@${domain}`;
+}
+
+/** Local part of the per-client drop address, e.g. 'acme7k2' → docs+acme7k2@firm.com. */
+export function ingestAliasFrom(name: string, suffix: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .slice(0, 8);
+  return `${slug || 'client'}${suffix}`;
+}
+
 // ─── Operational ─────────────────────────────────────────────────────────────
 
 /** Region for all Cloud Functions. Keep the bucket in the same region. */

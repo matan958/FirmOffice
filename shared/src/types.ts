@@ -390,6 +390,22 @@ export interface RegisterClientResponse {
   created: boolean;
 }
 
+export interface CreateClientRequest {
+  name: string;
+  legalName?: string;
+  taxId?: string;
+  primaryContactEmail?: string;
+  primaryContactPhone?: string;
+}
+
+export interface CreateClientResponse {
+  clientId: string;
+  /** Generated server-side; the local part of docs+{alias}@firm.com. */
+  ingestAlias: string;
+  /** True when primaryContactEmail was also seeded into the mapping table. */
+  emailIdentifierCreated: boolean;
+}
+
 export interface RetryOcrRequest {
   docId: string;
 }

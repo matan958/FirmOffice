@@ -6,8 +6,11 @@ import { RequireAuth, RequireRole, RoleLanding } from '@/features/auth/guards';
 import LoginPage from '@/features/auth/LoginPage';
 import SignupPage from '@/features/auth/SignupPage';
 import PendingPage from '@/features/auth/PendingPage';
+import ClientsPage from '@/features/clients/ClientsPage';
+import UsersPage from '@/features/admin/UsersPage';
 
 const ACCOUNTANT = ['accountant', 'admin'] as const;
+const ADMIN = ['admin'] as const;
 const CLIENT = ['client'] as const;
 
 /**
@@ -42,6 +45,11 @@ export default function App() {
                 path="/inbox"
                 element={<Placeholder title="Accountant Dashboard" milestone="M3" />}
               />
+              <Route path="/clients" element={<ClientsPage />} />
+            </Route>
+
+            <Route element={<RequireRole allow={ADMIN} />}>
+              <Route path="/users" element={<UsersPage />} />
             </Route>
           </Route>
         </Route>

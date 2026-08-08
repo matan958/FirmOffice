@@ -21,6 +21,8 @@ export default function Shell() {
 
         <nav className="mt-6 flex flex-col gap-1">
           {isAccountant && <Item to="/inbox">Inbox</Item>}
+          {isAccountant && <Item to="/clients">Clients</Item>}
+          {session?.role === 'admin' && <Item to="/users">Users</Item>}
           {session?.role === 'client' && <Item to="/portal">My documents</Item>}
           <Item to="/health">System health</Item>
         </nav>
