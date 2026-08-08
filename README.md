@@ -14,10 +14,17 @@ Proven end to end on `firmoffice-9b247` on 2026-08-08: magic-byte sniffing, SHA-
 duplicate detection, the free PDF text-layer path, search tokens, the pages
 subcollection, Cloud Tasks dispatch with retry, and nested metrics counters.
 
-**Not yet exercised for real:** Cloud Vision. Every test document so far has been a
-digital-native PDF, which the text-layer path handles without calling Vision at all.
-The scanned-image path is written and unit-tested against a fake engine, but no real
-Vision request has ever been made.
+**Not yet exercised on the real project — two things, both worth proving before the
+firm relies on them:**
+
+1. **Cloud Vision.** Every test document has been a digital-native PDF, which the
+   text-layer path handles without calling Vision at all. The scanned-image path is
+   written and unit-tested against a fake engine, but no real request has been made.
+   Upload a phone photo of a receipt to close this.
+2. **Signed-URL previews** (`getDocumentUrl`). The IAM signing grant and bucket CORS
+   are both in place and verified, but no preview has actually been fetched. These are
+   precisely the two settings whose absence produces errors that name neither IAM nor
+   CORS, so "configured" and "working" are worth distinguishing.
 
 ---
 
@@ -235,8 +242,12 @@ Decisions the plan deliberately left to you, with the milestone that forces them
 - [x] **M0** Foundations — scaffold, rules, emulators, CI
 - [x] **M1** Auth & RBAC — custom claims, route guards, full rules test matrix
 - [x] **M2** Web upload + OCR core — ingest trigger, Vision, counters, audit trail
-      *(core verified live; thumbnails, Retry-OCR and `getDocumentUrl` land with M3)*
-- [ ] **M3** Accountant Dashboard — inbox, split viewer, status management *(shippable)*
+      *(core verified live)*
+- [x] **M3** Accountant Dashboard — inbox, split viewer, status management *(shippable)*
+      *(built against emulators; signed-URL previews not yet exercised on the real
+      project. Page-1 thumbnails and the Unassigned "always file from this sender"
+      learning loop are deferred — the latter needs a sender address, which only
+      exists once Gmail ingestion lands in M4.)*
 - [ ] **M4** Gmail ingestion — poller, mapping ladder, learning loop
 - [ ] **M5** WhatsApp ingestion
 - [ ] **M6** Hardening — janitor, alerting, structured extraction, search, retention
