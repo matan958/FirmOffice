@@ -35,3 +35,6 @@ Thumbs.db
 
 # test / coverage
 coverage/
+
+# Local test fixture generated for the first end-to-end run.
+test-invoice.pdf

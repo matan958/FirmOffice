@@ -15,15 +15,53 @@
  *
  * The user must already exist — sign up through the app first, then run this.
  */
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { dirname, resolve } from 'node:path';
-import { initializeApp } from 'firebase-admin/app';
+import { dirname, resolve, join } from 'node:path';
+import { homedir } from 'node:os';
+import { initializeApp, applicationDefault, refreshToken } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const root = resolve(HERE, '..');
+
+/**
+ * Credentials, in order of preference.
+ *
+ * Application Default Credentials require the gcloud SDK, which is a heavy install for
+ * a machine that already has an authenticated Firebase CLI. So fall back to the token
+ * `firebase login` stored — same human, same permissions, nothing extra to set up.
+ * The client id/secret below are the public ones shipped inside firebase-tools itself.
+ */
+function credentialForProject() {
+  try {
+    return applicationDefault();
+  } catch {
+    /* fall through */
+  }
+
+  const stores = [
+    join(process.env.APPDATA ?? '', 'configstore', 'firebase-tools.json'),
+    join(homedir(), '.config', 'configstore', 'firebase-tools.json'),
+  ];
+  for (const path of stores) {
+    if (!path || !existsSync(path)) continue;
+    const stored = JSON.parse(readFileSync(path, 'utf8'));
+    if (!stored?.tokens?.refresh_token) continue;
+    return refreshToken({
+      type: 'authorized_user',
+      client_id: '563584335869-fgrhgmd47bqnekij5i8b5pr03ho849e6.apps.googleusercontent.com',
+      client_secret: 'j9iVZfS8kkCEFUPaAeJV0sAi',
+      refresh_token: stored.tokens.refresh_token,
+    });
+  }
+
+  throw new Error(
+    'No credentials. Run `npx firebase login`, or install gcloud and run\n' +
+      '`gcloud auth application-default login`.',
+  );
+}
 
 const args = process.argv.slice(2);
 const email = args.find((a) => !a.startsWith('-'));
@@ -53,7 +91,8 @@ if (useEmulator) {
   process.exit(1);
 }
 
-initializeApp({ projectId });
+// The emulator ignores credentials entirely; only a real project needs them.
+initializeApp(useEmulator ? { projectId } : { projectId, credential: credentialForProject() });
 
 const auth = getAuth();
 const db = getFirestore();
