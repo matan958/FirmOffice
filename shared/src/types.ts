@@ -193,6 +193,12 @@ export interface OcrResult {
   languageCodes: string[];
   completedAt: Timestampish;
   durationMs: number;
+  /**
+   * True when the text produced more tokens than MAX_SEARCH_TOKENS, so `searchTokens`
+   * covers only part of this document. Surfaced rather than hidden — otherwise partial
+   * search coverage looks identical to complete coverage.
+   */
+  tokensTruncated: boolean;
 }
 
 /** Structured field extraction. Populated in M6; empty object before then. */
@@ -281,6 +287,14 @@ export interface DocumentDoc {
 
   // ── results ──
   ocr: OcrResult | null;
+  /**
+   * Deduplicated word tokens from the OCR text, queried with `array-contains`.
+   *
+   * Firestore has no full-text search; this is the chosen substitute (OPEN ITEM #3).
+   * Whole words only — no prefix or fuzzy matching. Capped, because Firestore writes
+   * one index entry per array element.
+   */
+  searchTokens: string[];
   extracted: ExtractedFields;
   error: DocError | null;
 

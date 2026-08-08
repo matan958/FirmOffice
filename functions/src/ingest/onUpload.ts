@@ -6,6 +6,7 @@ import { fileTypeFromBuffer } from 'file-type';
 import { bucket, db } from '../lib/firebase.js';
 import { classify, parseIncomingPath } from './classify.js';
 import { convertHeicToJpeg } from './convertHeic.js';
+import { enqueueOcr } from '../ocr/enqueue.js';
 import {
   COLLECTIONS,
   DUPLICATE_WINDOW_DAYS,
@@ -200,9 +201,8 @@ export const onDocumentUploaded = onObjectFinalized(
         }
       }
 
-      // 'received' means validated and awaiting OCR. Nothing advances it further yet —
-      // the Vision stage lands next.
-      const next: PipelineStatus = classify(finalType) === 'ocr' ? 'received' : 'skipped_ocr';
+      const willOcr = classify(finalType) === 'ocr';
+      const next: PipelineStatus = willOcr ? 'ocr_queued' : 'skipped_ocr';
 
       // Dotted paths so the client-written file.originalName survives — a nested
       // object would replace the whole map. Not expressible in the model type, which
@@ -216,6 +216,10 @@ export const onDocumentUploaded = onObjectFinalized(
         duplicateOf,
         updatedAt: FieldValue.serverTimestamp(),
       });
+
+      // Enqueue AFTER the document update, so the task cannot start before the record
+      // says ocr_queued — the handler's idempotency guard reads that status.
+      if (willOcr) await enqueueOcr(docId);
 
       logger.info('ingest ok', {
         docId,

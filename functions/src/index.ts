@@ -57,6 +57,7 @@ export { registerClient } from './auth/registerClient.js';
 export { createClient } from './admin/createClient.js';
 export { onDocumentUploaded } from './ingest/onUpload.js';
 export { onDocumentChanged } from './metrics/counters.js';
+export { ocrTask } from './ocr/task.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Milestone map — each export below arrives with its milestone.
