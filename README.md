@@ -6,25 +6,29 @@ preview side-by-side with OCR-extracted text.
 
 Full architecture, schema rationale, and edge-case handling: **[`docs/PLAN.md`](docs/PLAN.md)**.
 
-**Status: M2 core complete and verified against the live project.** A client uploads a
-document; it is validated, hashed, de-duplicated, OCR'd and indexed for search, with
-live counters and an audit trail. The accountant dashboard (M3) is next.
+**Status: M0–M4 built. M2's core is the only part verified against the live project.**
+A document arrives — dropped in the Client Portal, or mailed to the firm's ingest
+address — and is validated, hashed, de-duplicated, matched to a client, OCR'd and
+indexed, with live counters and an audit trail. Accountants work it from an Inbox with
+the original and the extracted text side by side.
 
 Proven end to end on `firmoffice-9b247` on 2026-08-08: magic-byte sniffing, SHA-256
 duplicate detection, the free PDF text-layer path, search tokens, the pages
 subcollection, Cloud Tasks dispatch with retry, and nested metrics counters.
 
-**Not yet exercised on the real project — two things, both worth proving before the
-firm relies on them:**
+**Not yet exercised on the real project.** Everything below is written and unit-tested
+but has never run against Google's own services, which is a different claim:
 
 1. **Cloud Vision.** Every test document has been a digital-native PDF, which the
    text-layer path handles without calling Vision at all. The scanned-image path is
-   written and unit-tested against a fake engine, but no real request has been made.
-   Upload a phone photo of a receipt to close this.
+   tested against a fake engine only. Upload a phone photo of a receipt to close this.
 2. **Signed-URL previews** (`getDocumentUrl`). The IAM signing grant and bucket CORS
    are both in place and verified, but no preview has actually been fetched. These are
    precisely the two settings whose absence produces errors that name neither IAM nor
    CORS, so "configured" and "working" are worth distinguishing.
+3. **The whole Gmail channel** (M4). The mapping ladder and attachment filtering are
+   covered by 50 unit tests against synthetic payloads, but no real message has been
+   read. See [Connecting Gmail](#connecting-gmail-m4).
 
 ---
 
@@ -131,6 +135,7 @@ and a reachable Functions callable. Emulator UI is on <http://localhost:4000>.
 | `npm run deploy` | Build, then deploy everything |
 | `npm run deploy:rules` | Rules + indexes only (fast, safe iteration) |
 | `npm run set-cors` | Applies `cors.json` to the Storage bucket |
+| `npm run gmail-auth` | One-off OAuth flow that mints the poller's refresh token |
 
 ### Windows note
 
@@ -164,13 +169,12 @@ None of this can be scripted; it needs a Google account with billing.
      cloudbuild.googleapis.com artifactregistry.googleapis.com \
      eventarc.googleapis.com vision.googleapis.com \
      cloudtasks.googleapis.com cloudscheduler.googleapis.com \
-     secretmanager.googleapis.com --project=<PROJECT_ID>
+     secretmanager.googleapis.com gmail.googleapis.com --project=<PROJECT_ID>
    ```
    `compute` and `iamcredentials` are the two that are easy to miss and hard to
    diagnose: **enabling Compute Engine is what creates the default service account**
    that step 9 grants a role to, and without it that step fails with
    *"Unknown service account"*. `iamcredentials` is what actually signs the URLs.
-   (Gmail API in M4.)
 5. **Create Firestore** (Native mode) and a **Storage bucket**, both in the US.
    > **Do this in the console, deliberately.** `firebase deploy --only
    > firestore:rules,firestore:indexes` will silently CREATE the database if none
@@ -207,8 +211,119 @@ None of this can be scripted; it needs a Google account with billing.
     job is gated off until you do, so `verify` runs on every push but nothing tries to
     deploy into a project that does not exist yet.
 
-Storage lifecycle rules (`ocr-output/` 7d, `quarantine/` 30d) and the Firestore TTL
-policy on `processedMessages` are set in the console; they matter from M2 onward.
+Storage lifecycle rules (`ocr-output/` 7d, `quarantine/` 30d) are set in the console,
+as is the Firestore **TTL policy on `processedMessages`, keyed on the `expiresAt`
+field**. That collection is the idempotency ledger: one row per mail attachment ever
+ingested, written forever unless the policy is in place to sweep them.
+
+---
+
+## Connecting Gmail (M4)
+
+Documents arrive by mail as well as through the portal. A scheduled poller reads the
+firm's mailbox every five minutes, filters real attachments out of email furniture,
+works out which client each one belongs to, and hands the bytes to the same ingest
+spine the portal uses.
+
+### How a message finds its client
+
+Rungs are tried strongest first; the first hit wins and the document records which
+rung matched and how confident it was.
+
+| # | Rung | Confidence | Notes |
+|---|---|---|---|
+| 1 | **Drop address** — `you+acme7k2@gmail.com` | 1.00 | Per-client. The only rung a forged sender cannot influence. |
+| 2 | Exact sender address | 0.95 | Normalized: lowercased, `+tag` stripped, dots stripped for Gmail only |
+| 3 | Subject code — `[ACME-123]` | 0.85 | |
+| 4 | Forwarded original sender | 0.70 | Parsed from the quoted `From:` when an accountant forwards a client's mail |
+| 5 | Sender domain | 0.60 | Corporate clients with several staff. **Never** a public mailbox provider |
+| 6 | Reply-To | 0.50 | Below the auto-file floor — can only ever suggest |
+
+Below **0.60** nothing is filed automatically. The document lands in Unassigned with
+its best candidate attached, so filing it is one click rather than a search. Guessing
+into `clientId` is not a smaller error than leaving it unassigned; it is a larger one,
+because nobody goes looking.
+
+> **The plan's table ordered these differently** — domain (0.60) above subject code
+> (0.85) and forwarded (0.70). With "stop at the first hit" that lets a weak domain
+> match pre-empt a strong subject code on the same message. First-hit-wins is only
+> sound if the rungs are sorted by confidence.
+
+**Sender authentication.** `From:` is plain text anyone can write. If Gmail's own
+`Authentication-Results` header says both DKIM and SPF failed, sender-derived rungs are
+halved, which drops every one of them below the auto-file floor. DKIM and SPF are
+treated as alternatives rather than both being required: plenty of small businesses
+never sign with DKIM, and exiling them to Unassigned permanently trains accountants to
+click through the queue without reading it. The drop address and subject code are not
+gated on this — they are tokens the firm issued, not identity claims.
+
+**The learning loop.** Filing an unassigned document offers *"always file mail from
+john@acme.com under Acme Ltd"*, which creates the identifier and re-files everything
+already waiting from that sender. This is what decides whether Unassigned is a short
+onboarding phase or a permanent tax.
+
+### What you have to do — a single private Gmail account
+
+Roughly 15 minutes in the console, all free. **Step 3 is the one that silently breaks
+things a week later.**
+
+1. **Enable the Gmail API** for the project (APIs & Services → Library → Gmail API).
+2. **Configure the OAuth consent screen** (APIs & Services → OAuth consent screen):
+   User Type **External**, add your own address as a test user, and add the scope
+   `https://www.googleapis.com/auth/gmail.modify`.
+3. **Publish the app — set publishing status to "In production".**
+   > Google expires refresh tokens issued by an app still in **Testing** after
+   > **seven days**. The poller would work for a week and then stop, and a mailbox that
+   > yields no documents looks exactly like a quiet week. Publishing is a button; as
+   > the only user of your own app you then click through the "Google hasn't verified
+   > this app" screen (Advanced → Go to…). Verification is only needed to remove that
+   > warning for *other* people.
+4. **Create an OAuth client** (Credentials → Create credentials → OAuth client ID) with
+   application type **Desktop app**. That type accepts loopback redirects without
+   registering redirect URIs.
+5. **Mint the refresh token**, which opens a browser and verifies the result actually
+   reads your mailbox before printing anything:
+   ```bash
+   npm run gmail-auth -- --client-id=<ID> --client-secret=<SECRET>
+   ```
+6. **Store the three secrets** (each command reads the value from stdin):
+   ```bash
+   npx firebase functions:secrets:set GMAIL_CLIENT_ID
+   npx firebase functions:secrets:set GMAIL_CLIENT_SECRET
+   npx firebase functions:secrets:set GMAIL_REFRESH_TOKEN
+   ```
+7. **Deploy**, then open the Inbox. The strip under the metrics bar shows the mailbox
+   the token belongs to and when the poller last completed a run; admins get a
+   **Check now** button so you need not wait for a tick.
+8. **Give a client their drop address** from the Clients page and mail something to it.
+
+To rotate or repoint the mailbox, re-run steps 5–6 and redeploy. The poller re-reads
+the account's own address on every run, so the drop addresses shown in the UI follow
+automatically.
+
+### Operational notes
+
+- **Polling, not push.** Gmail's `users.watch` subscription **expires every 7 days** and
+  needs a daily renewal function, plus history-cursor handling with a full-scan fallback
+  for when Gmail's ~1 week of history has aged out. Polling a fixed 2-day window keeps
+  no cursor at all: any outage shorter than the window self-heals on the next run, and
+  the idempotency ledger discards what is already held. The cost is latency measured in
+  minutes.
+- **Idempotency keys are `gmail:{messageId}.{partIndex}`, not the attachment ID.** Gmail
+  does not promise `attachmentId` is the same value on a later fetch of the same
+  message, so keying on it would re-ingest the whole window every five minutes.
+- **`receivedAt` is Gmail's `internalDate`, not the `Date:` header.** That header is
+  written by the sender's machine; a skewed clock dates a message in 2030 and pins it to
+  the top of an inbox sorted by `receivedAt`, permanently.
+- **Inline images are filtered** by `Content-ID` plus a size ceiling, not by size alone —
+  a phone mail client genuinely sends real receipts inline.
+- **Archives, `.eml` and files over 50 MB are refused, not stored**, and the message is
+  labelled `FirmOffice/Attention` rather than `FirmOffice/Processed` so it stays visible
+  in the mailbox. Attachments over 25 MB are not in the message at all — Gmail replaces
+  them with Drive links, which are detected and flagged.
+- **Cost.** Gmail API calls are free. One Cloud Scheduler job is inside the free tier of
+  three. 8,640 invocations a month is a rounding error against the 2M free tier. The
+  real variable cost is Vision, on scanned attachments only.
 
 ---
 
@@ -219,10 +334,14 @@ Decisions the plan deliberately left to you, with the milestone that forces them
 | # | Item | Needed by |
 |---|---|---|
 | 1 | Meta Business verification — **start the paperwork early**, 1–2 weeks of calendar time | before M5 |
-| 4 | Gmail auth: Workspace domain-wide delegation, or a plain mailbox + OAuth refresh token in Secret Manager? | M4 |
 | 5 | Firm timezone + expected daily document volume | M2 |
 
 ### Decided
+
+- **Gmail auth → OAuth refresh token in Secret Manager** (2026-08-08, open item #4).
+  A single private Gmail account, so Workspace domain-wide delegation is not available
+  and not needed. The consequence to watch is the consent screen's publishing status:
+  see step 3 of [Connecting Gmail](#connecting-gmail-m4).
 
 - **HEIC → convert on ingest** (2026-08-08). `heic-convert` (pure JS; `sharp` needs
   libheif, which complicates the Functions runtime). Rejecting would read to a client
@@ -248,6 +367,9 @@ Decisions the plan deliberately left to you, with the milestone that forces them
       project. Page-1 thumbnails and the Unassigned "always file from this sender"
       learning loop are deferred — the latter needs a sender address, which only
       exists once Gmail ingestion lands in M4.)*
-- [ ] **M4** Gmail ingestion — poller, mapping ladder, learning loop
+- [x] **M4** Gmail ingestion — poller, mapping ladder, learning loop
+      *(built and unit-tested against synthetic payloads; no real message has been
+      read yet. Needs the console steps in [Connecting Gmail](#connecting-gmail-m4)
+      before it can run at all.)*
 - [ ] **M5** WhatsApp ingestion
 - [ ] **M6** Hardening — janitor, alerting, structured extraction, search, retention
