@@ -205,8 +205,19 @@ export function ingestAliasFrom(name: string, suffix: string): string {
 
 // ─── Operational ─────────────────────────────────────────────────────────────
 
-/** Region for all Cloud Functions. Keep the bucket in the same region. */
-export const FUNCTIONS_REGION = 'us-central1';
+/**
+ * Region for all Cloud Functions.
+ *
+ * MUST equal the Storage bucket's region. Gen 2 storage triggers are delivered by
+ * Eventarc, which refuses to register a cross-region subscription — the deploy fails
+ * outright with "a function in region X cannot listen to a bucket in region Y". This
+ * is a hard constraint, not a latency preference.
+ *
+ * us-east1 because the project's default bucket landed there; moving the function is
+ * a one-line change, moving the default bucket is not. Firestore is `nam5`, a US
+ * multi-region, which any US function region can reach.
+ */
+export const FUNCTIONS_REGION = 'us-east1';
 
 export const OCR_TASK_QUEUE = 'ocr-queue';
 

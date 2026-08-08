@@ -42,15 +42,21 @@ is ever invisible to the firm because a machine step failed.
 | Piece | Location | Notes |
 |---|---|---|
 | Firestore | **`nam5`** (US multi-region) | Permanent. Higher availability; roughly double the per-operation cost of a single region. |
-| Cloud Functions | `us-central1` | `FUNCTIONS_REGION`. Inside `nam5`, so no cross-region latency. |
-| Storage bucket | `firmoffice-9b247.firebasestorage.app` | Keep in the US, alongside the above. |
+| Storage bucket | **`us-east1`** | `firmoffice-9b247.firebasestorage.app`, created here by default. |
+| Cloud Functions | **`us-east1`** | `FUNCTIONS_REGION`. Must match the bucket — see below. |
 
 `nam5` was chosen deliberately on 2026-08-08 after the CLI created the database there
 by default. It replicates across US regions, which suits a compliance-sensitive
 document archive; the trade is per-operation cost.
 
-`FUNCTIONS_REGION` stays `us-central1` — it names where *functions* run, not where
-Firestore lives, and the two do not have to match.
+> **`FUNCTIONS_REGION` must equal the bucket's region.** Gen 2 storage triggers are
+> delivered by Eventarc, which refuses a cross-region subscription: the deploy fails
+> with *"a function in region X cannot listen to a bucket in region Y"*. This is a hard
+> constraint, not a latency preference. Functions were moved to `us-east1` to match the
+> bucket, because moving a function is one constant and moving the default bucket is
+> not.
+
+Firestore's region is independent — any US function region can reach `nam5`.
 
 ## Roles & access
 
