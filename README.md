@@ -37,6 +37,21 @@ The single most load-bearing modelling decision, so it is worth stating up front
 A document is `pending` from the moment it lands, *regardless of OCR outcome*. Nothing
 is ever invisible to the firm because a machine step failed.
 
+## Deployed topology
+
+| Piece | Location | Notes |
+|---|---|---|
+| Firestore | **`nam5`** (US multi-region) | Permanent. Higher availability; roughly double the per-operation cost of a single region. |
+| Cloud Functions | `us-central1` | `FUNCTIONS_REGION`. Inside `nam5`, so no cross-region latency. |
+| Storage bucket | `firmoffice-9b247.firebasestorage.app` | Keep in the US, alongside the above. |
+
+`nam5` was chosen deliberately on 2026-08-08 after the CLI created the database there
+by default. It replicates across US regions, which suits a compliance-sensitive
+document archive; the trade is per-operation cost.
+
+`FUNCTIONS_REGION` stays `us-central1` — it names where *functions* run, not where
+Firestore lives, and the two do not have to match.
+
 ## Roles & access
 
 Authorization lives in the ID token's **custom claims** (`role`, `clientId`) — never in
@@ -120,8 +135,12 @@ None of this can be scripted; it needs a Google account with billing.
    $1.50 per 1000 pages and a misconfigured poller can reprocess an entire inbox.
 4. **Enable APIs** in the Cloud Console: Cloud Vision, Cloud Tasks, Cloud Scheduler,
    Secret Manager, Eventarc, Cloud Build. (Gmail API in M4.)
-5. **Create Firestore** (Native mode) and a **Storage bucket** — put both in the same
-   region as `FUNCTIONS_REGION` in `shared/src/constants.ts` (`us-central1`).
+5. **Create Firestore** (Native mode) and a **Storage bucket**, both in the US.
+   > **Do this in the console, deliberately.** `firebase deploy --only
+   > firestore:rules,firestore:indexes` will silently CREATE the database if none
+   > exists, picking its own default location — and a Firestore location is
+   > **permanent**. The only fix is deleting and recreating, which is free only while
+   > the database is still empty.
 6. **Enable the Email/Password provider** — Authentication → Sign-in method. Nothing in
    M1 works without it: sign-in fails with `auth/operation-not-allowed`, which does not
    obviously mean "you skipped a console toggle". The emulator allows it by default, so
