@@ -6,8 +6,18 @@ preview side-by-side with OCR-extracted text.
 
 Full architecture, schema rationale, and edge-case handling: **[`docs/PLAN.md`](docs/PLAN.md)**.
 
-**Status: M1 complete** — auth, roles, and route guards work end to end. Clients can
-sign up and accountants can sign in; document ingestion (M2) is next.
+**Status: M2 core complete and verified against the live project.** A client uploads a
+document; it is validated, hashed, de-duplicated, OCR'd and indexed for search, with
+live counters and an audit trail. The accountant dashboard (M3) is next.
+
+Proven end to end on `firmoffice-9b247` on 2026-08-08: magic-byte sniffing, SHA-256
+duplicate detection, the free PDF text-layer path, search tokens, the pages
+subcollection, Cloud Tasks dispatch with retry, and nested metrics counters.
+
+**Not yet exercised for real:** Cloud Vision. Every test document so far has been a
+digital-native PDF, which the text-layer path handles without calling Vision at all.
+The scanned-image path is written and unit-tested against a fake engine, but no real
+Vision request has ever been made.
 
 ---
 
@@ -224,7 +234,8 @@ Decisions the plan deliberately left to you, with the milestone that forces them
 
 - [x] **M0** Foundations — scaffold, rules, emulators, CI
 - [x] **M1** Auth & RBAC — custom claims, route guards, full rules test matrix
-- [ ] **M2** Web upload + OCR core — `ingestDocument()`, Vision, counters, audit trail
+- [x] **M2** Web upload + OCR core — ingest trigger, Vision, counters, audit trail
+      *(core verified live; thumbnails, Retry-OCR and `getDocumentUrl` land with M3)*
 - [ ] **M3** Accountant Dashboard — inbox, split viewer, status management *(shippable)*
 - [ ] **M4** Gmail ingestion — poller, mapping ladder, learning loop
 - [ ] **M5** WhatsApp ingestion

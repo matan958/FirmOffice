@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '@/lib/firebase';
+import { useSession } from '@/features/auth/AuthProvider';
 import { COLLECTIONS } from '@shared';
 import type { ClientDoc, Role, SetUserRoleRequest, SetUserRoleResponse, UserDoc } from '@shared';
 import { ErrorNote } from '@/features/auth/AuthCard';
@@ -23,6 +24,7 @@ const setUserRoleFn = httpsCallable<SetUserRoleRequest, SetUserRoleResponse>(
  * there is deliberately no self-signup path to that role.
  */
 export default function UsersPage() {
+  const session = useSession();
   const [users, setUsers] = useState<UserRow[] | null>(null);
   const [clients, setClients] = useState<ClientRow[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +88,7 @@ export default function UsersPage() {
               </tr>
             )}
             {users?.map((u) => (
-              <UserRowView key={u.id} user={u} clients={clients} />
+              <UserRowView key={u.id} user={u} clients={clients} selfUid={session?.user.uid} />
             ))}
           </tbody>
         </table>
@@ -95,12 +97,23 @@ export default function UsersPage() {
   );
 }
 
-function UserRowView({ user, clients }: { user: UserRow; clients: ClientRow[] }) {
+function UserRowView({
+  user,
+  clients,
+  selfUid,
+}: {
+  user: UserRow;
+  clients: ClientRow[];
+  selfUid: string | undefined;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [choice, setChoice] = useState('');
 
   const isPending = user.role === 'client' && !user.clientId;
+  // setUserRole refuses to change the caller's own role — an admin who demoted
+  // themselves could not undo it. Don't offer a button that can only fail.
+  const isSelf = user.id === selfUid;
 
   async function apply(role: Role, clientId?: string) {
     setBusy(true);
@@ -124,13 +137,18 @@ function UserRowView({ user, clients }: { user: UserRow; clients: ClientRow[] })
       <td className="px-4 py-2 text-ink-600">
         {user.clientId ? (
           clients.find((c) => c.id === user.clientId)?.name ?? user.clientId
-        ) : (
+        ) : user.role === 'client' ? (
           <span className="text-amber-700">not linked</span>
+        ) : (
+          // Accountants and admins see every client by role; a link would mean nothing,
+          // and flagging them amber implies something is wrong when nothing is.
+          <span className="text-ink-400">—</span>
         )}
       </td>
       <td className="px-4 py-2">
         <div className="flex flex-wrap items-center gap-2">
-          {user.role === 'client' && (
+          {isSelf && <span className="text-xs text-ink-400">you</span>}
+          {!isSelf && user.role === 'client' && (
             <>
               <select
                 value={choice}
@@ -154,7 +172,7 @@ function UserRowView({ user, clients }: { user: UserRow; clients: ClientRow[] })
               </button>
             </>
           )}
-          {user.role !== 'accountant' && (
+          {!isSelf && user.role !== 'accountant' && (
             <button
               disabled={busy}
               onClick={() => void apply('accountant')}
