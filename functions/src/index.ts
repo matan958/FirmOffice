@@ -1,22 +1,12 @@
-import { setGlobalOptions } from 'firebase-functions/v2';
+// MUST be the first import. It calls setGlobalOptions(), which only affects function
+// definitions evaluated after it — and ESM evaluates every import below before this
+// module's body. Move it and the re-exported functions silently deploy to the wrong
+// region. See lib/options.ts.
+import './lib/options.js';
+
 import { onCall, onRequest } from 'firebase-functions/v2/https';
-import { FUNCTIONS_REGION } from './shared.js';
 import { isEmulated } from './lib/firebase.js';
 import type { HealthCheckResponse } from './shared.js';
-
-/**
- * Global defaults for every function in this codebase.
- *
- * `maxInstances` is a deliberate cost guard, not a performance tuning knob: a bulk
- * upload or a misconfigured poller must not be able to fan out into thousands of
- * concurrent Vision calls before anyone notices the bill.
- */
-setGlobalOptions({
-  region: FUNCTIONS_REGION,
-  maxInstances: 10,
-  memory: '512MiB',
-  timeoutSeconds: 120,
-});
 
 const VERSION = '0.1.0';
 
