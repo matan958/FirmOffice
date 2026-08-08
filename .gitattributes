@@ -1,0 +1,13 @@
+# Normalize line endings. Without this, a repo authored on Windows shows whole-file
+# diffs the moment anyone touches it from macOS/Linux — or CI writes a file back.
+* text=auto eol=lf
+
+# Never let Git rewrite bytes inside binary fixtures (the M6 edge-case corpus lands here).
+*.pdf   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
+*.tiff  binary
+*.heic  binary
+*.xlsx  binary

@@ -6,8 +6,8 @@ preview side-by-side with OCR-extracted text.
 
 Full architecture, schema rationale, and edge-case handling: **[`docs/PLAN.md`](docs/PLAN.md)**.
 
-**Status: M0 complete** — scaffold, security rules, and toolchain verified. No feature
-code yet.
+**Status: M1 complete** — auth, roles, and route guards work end to end. Clients can
+sign up and accountants can sign in; document ingestion (M2) is next.
 
 ---
 
@@ -36,6 +36,37 @@ The single most load-bearing modelling decision, so it is worth stating up front
 
 A document is `pending` from the moment it lands, *regardless of OCR outcome*. Nothing
 is ever invisible to the firm because a machine step failed.
+
+## Roles & access
+
+Authorization lives in the ID token's **custom claims** (`role`, `clientId`) — never in
+a Firestore document. Rules read the token directly, so authorizing a request costs no
+billed read.
+
+| Role | Gets it by | Can see |
+|---|---|---|
+| `client` | self-signup at `/signup` | only their own documents, and only once **linked** |
+| `accountant` | an admin runs `setUserRole` | every document, the client list, firm metrics |
+| `admin` | `scripts/grant-admin.mjs`, then `setUserRole` | the above, plus role assignment |
+
+**Signup grants a role but no access.** A self-registered user gets `role: 'client'`
+with *no* `clientId` claim, and every client rule is gated on
+`isLinkedClient()` — `isClient() && myClientId() != ''`. Without that guard an
+unlinked user's `myClientId()` evaluates to `''`, which would match any document whose
+`clientId` was also `''`. Two rules tests exist purely to pin that down; they fail if
+the guard is removed. Until an accountant links them, the user sits on `/pending`.
+
+Creating the first admin is a chicken-and-egg — `setUserRole` is admin-only. Sign up
+through the app, then:
+
+```bash
+npm run grant-admin -- you@example.com --emulator   # local
+npm run grant-admin -- you@example.com              # real project (needs ADC)
+```
+
+Role changes revoke the target's refresh tokens, because an existing ID token keeps its
+old claims for up to an hour otherwise. The SPA listens on `onIdTokenChanged`, so new
+claims land without a re-login.
 
 ---
 
@@ -136,7 +167,7 @@ Decisions the plan deliberately left to you, with the milestone that forces them
 ## Roadmap
 
 - [x] **M0** Foundations — scaffold, rules, emulators, CI
-- [ ] **M1** Auth & RBAC — custom claims, route guards, full rules test matrix
+- [x] **M1** Auth & RBAC — custom claims, route guards, full rules test matrix
 - [ ] **M2** Web upload + OCR core — `ingestDocument()`, Vision, counters, audit trail
 - [ ] **M3** Accountant Dashboard — inbox, split viewer, status management *(shippable)*
 - [ ] **M4** Gmail ingestion — poller, mapping ladder, learning loop

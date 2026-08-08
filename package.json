@@ -16,10 +16,12 @@
     "rules:test": "firebase emulators:exec --project demo-firmoffice --only firestore \"npm --prefix functions run test:rules\"",
     "deploy": "npm run build && firebase deploy",
     "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes,storage",
-    "set-cors": "node scripts/set-cors.mjs"
+    "set-cors": "node scripts/set-cors.mjs",
+    "grant-admin": "node scripts/grant-admin.mjs"
   },
   "devDependencies": {
     "@google-cloud/storage": "^7.21.0",
+    "firebase-admin": "^14.2.0",
     "firebase-tools": "^15.25.1",
     "typescript": "^7.0.2"
   }

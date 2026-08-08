@@ -1,23 +1,54 @@
-import { Link, Navigate, Route, Routes } from 'react-router-dom';
+import { Link, Route, Routes } from 'react-router-dom';
 import HealthPage from '@/pages/HealthPage';
+import Shell from '@/components/Shell';
+import { AuthProvider } from '@/features/auth/AuthProvider';
+import { RequireAuth, RequireRole, RoleLanding } from '@/features/auth/guards';
+import LoginPage from '@/features/auth/LoginPage';
+import SignupPage from '@/features/auth/SignupPage';
+import PendingPage from '@/features/auth/PendingPage';
+
+const ACCOUNTANT = ['accountant', 'admin'] as const;
+const CLIENT = ['client'] as const;
 
 /**
  * Route shell.
  *
- * M1 wraps these in an AuthProvider + role guards and replaces the placeholders:
- *   /login    role-selecting email/password sign-in
- *   /portal   Client Portal — drag & drop upload            (M2)
- *   /inbox    Accountant Dashboard — list + split viewer     (M3)
+ * Guards here are convenience only — the real boundary is firestore.rules /
+ * storage.rules, which verify the same claims server-side. See features/auth/guards.
  */
 export default function App() {
   return (
-    <Routes>
-      <Route path="/" element={<Navigate to="/health" replace />} />
-      <Route path="/health" element={<HealthPage />} />
-      <Route path="/portal" element={<Placeholder title="Client Portal" milestone="M2" />} />
-      <Route path="/inbox" element={<Placeholder title="Accountant Dashboard" milestone="M3" />} />
-      <Route path="*" element={<NotFound />} />
-    </Routes>
+    <AuthProvider>
+      <Routes>
+        {/* Public */}
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/signup" element={<SignupPage />} />
+
+        {/* Signed in */}
+        <Route element={<RequireAuth />}>
+          <Route path="/" element={<RoleLanding />} />
+          {/* Outside the shell: a pending client has no navigation to offer. */}
+          <Route path="/pending" element={<PendingPage />} />
+
+          <Route element={<Shell />}>
+            <Route path="/health" element={<HealthPage />} />
+
+            <Route element={<RequireRole allow={CLIENT} />}>
+              <Route path="/portal" element={<Placeholder title="Client Portal" milestone="M2" />} />
+            </Route>
+
+            <Route element={<RequireRole allow={ACCOUNTANT} />}>
+              <Route
+                path="/inbox"
+                element={<Placeholder title="Accountant Dashboard" milestone="M3" />}
+              />
+            </Route>
+          </Route>
+        </Route>
+
+        <Route path="*" element={<NotFound />} />
+      </Routes>
+    </AuthProvider>
   );
 }
 
@@ -25,12 +56,7 @@ function Placeholder({ title, milestone }: { title: string; milestone: string })
   return (
     <main className="mx-auto max-w-2xl p-8">
       <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-      <p className="mt-2 text-sm text-ink-600">
-        Not built yet — arrives in milestone {milestone}.
-      </p>
-      <Link to="/health" className="mt-6 inline-block text-sm text-brand-600 underline">
-        ← System health
-      </Link>
+      <p className="mt-2 text-sm text-ink-600">Not built yet — arrives in milestone {milestone}.</p>
     </main>
   );
 }
@@ -39,8 +65,8 @@ function NotFound() {
   return (
     <main className="mx-auto max-w-2xl p-8">
       <h1 className="text-2xl font-semibold tracking-tight">Not found</h1>
-      <Link to="/health" className="mt-6 inline-block text-sm text-brand-600 underline">
-        ← System health
+      <Link to="/" className="mt-6 inline-block text-sm text-brand-600 underline">
+        ← Home
       </Link>
     </main>
   );

@@ -8,7 +8,7 @@ import {
   assertSucceeds,
   type RulesTestEnvironment,
 } from '@firebase/rules-unit-testing';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { deleteDoc, doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 
 /**
  * Firestore security rules tests.
@@ -34,6 +34,17 @@ function asClient(uid: string, clientId: string) {
 }
 function asAccountant(uid = 'acct-1') {
   return testEnv.authenticatedContext(uid, { role: 'accountant' }).firestore();
+}
+function asAdmin(uid = 'admin-1') {
+  return testEnv.authenticatedContext(uid, { role: 'admin' }).firestore();
+}
+/**
+ * A client who self-registered but has NOT been linked to a client record: the token
+ * carries `role: 'client'` with no clientId at all. This is the state every signup
+ * lands in, so it is the one an attacker reaches for free.
+ */
+function asUnlinkedClient(uid = 'user-new') {
+  return testEnv.authenticatedContext(uid, { role: 'client' }).firestore();
 }
 function asAnon() {
   return testEnv.unauthenticatedContext().firestore();
@@ -90,6 +101,26 @@ beforeEach(async () => {
     await setDoc(doc(db, 'documents/doc-b'), {
       ...webUploadPayload(CLIENT_B, 'user-b'),
       pipelineStatus: 'ocr_done',
+    });
+    // The trap an unlinked client would spring: their token has no clientId, so
+    // myClientId() evaluates to '' and would match this document without the
+    // isLinkedClient() guard.
+    await setDoc(doc(db, 'documents/doc-empty'), {
+      ...webUploadPayload('', 'user-x'),
+      clientId: '',
+    });
+    await setDoc(doc(db, `clients/${CLIENT_A}`), {
+      name: 'Acme Ltd',
+      ingestAlias: 'acme7k2',
+      status: 'active',
+      assignedAccountantIds: [],
+      counters: { pending: 0, in_progress: 0, processed: 0 },
+    });
+    await setDoc(doc(db, 'users/user-a'), {
+      role: 'client',
+      email: 'a@acme.com',
+      clientId: CLIENT_A,
+      active: true,
     });
   });
 });
@@ -219,6 +250,89 @@ describe('clientIdentifiers — the mapping table is accountant-only', () => {
         matchCount: 0,
       }),
     );
+  });
+});
+
+describe('unlinked client — signup grants a role but no access', () => {
+  it('denies reading any client document', async () => {
+    await assertFails(getDoc(doc(asUnlinkedClient(), 'documents/doc-a')));
+  });
+
+  it("denies reading a document whose clientId is the empty string", async () => {
+    // Without isLinkedClient(), myClientId() === '' would match this exactly.
+    await assertFails(getDoc(doc(asUnlinkedClient(), 'documents/doc-empty')));
+  });
+
+  it('denies creating a document under the empty clientId', async () => {
+    await assertFails(
+      setDoc(doc(asUnlinkedClient(), 'documents/new-unlinked'), {
+        ...webUploadPayload('', 'user-new'),
+        clientId: '',
+      }),
+    );
+  });
+
+  it('denies reading any client record', async () => {
+    await assertFails(getDoc(doc(asUnlinkedClient(), `clients/${CLIENT_A}`)));
+  });
+});
+
+describe('users — self-readable mirror, never client-writable', () => {
+  it('lets a user read their own mirror', async () => {
+    await assertSucceeds(getDoc(doc(asClient('user-a', CLIENT_A), 'users/user-a')));
+  });
+
+  it("denies reading another user's mirror", async () => {
+    await assertFails(getDoc(doc(asClient('user-b', CLIENT_B), 'users/user-a')));
+  });
+
+  it('lets an admin read any mirror', async () => {
+    await assertSucceeds(getDoc(doc(asAdmin(), 'users/user-a')));
+  });
+
+  it('denies an accountant reading an arbitrary mirror', async () => {
+    // Accountants get blanket document access, but roles are an admin concern.
+    await assertFails(getDoc(doc(asAccountant(), 'users/user-a')));
+  });
+
+  it('denies a user writing their own role', async () => {
+    // The whole point: privilege escalation must go through setUserRole, which
+    // checks the caller is an admin. Custom claims are set by the Admin SDK only.
+    await assertFails(
+      setDoc(doc(asClient('user-a', CLIENT_A), 'users/user-a'), { role: 'admin' }),
+    );
+  });
+});
+
+describe('clients — accountant-managed, client sees only their own', () => {
+  it('lets a linked client read their own record', async () => {
+    await assertSucceeds(getDoc(doc(asClient('user-a', CLIENT_A), `clients/${CLIENT_A}`)));
+  });
+
+  it("denies a client reading another firm client's record", async () => {
+    await assertFails(getDoc(doc(asClient('user-a', CLIENT_A), `clients/${CLIENT_B}`)));
+  });
+
+  it('lets an accountant create a client', async () => {
+    await assertSucceeds(
+      setDoc(doc(asAccountant(), 'clients/client-new'), {
+        name: 'New Co',
+        ingestAlias: 'newco1',
+        status: 'active',
+        assignedAccountantIds: [],
+        counters: { pending: 0, in_progress: 0, processed: 0 },
+      }),
+    );
+  });
+
+  it('denies a client creating a client record', async () => {
+    await assertFails(
+      setDoc(doc(asClient('user-a', CLIENT_A), 'clients/client-forged'), { name: 'Forged' }),
+    );
+  });
+
+  it('denies hard-deleting a client (archive via status instead)', async () => {
+    await assertFails(deleteDoc(doc(asAdmin(), `clients/${CLIENT_A}`)));
   });
 });
 

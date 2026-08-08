@@ -44,9 +44,15 @@ export const ping = onRequest({ cors: true }, (_req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// M1 — Auth & RBAC
+// ─────────────────────────────────────────────────────────────────────────────
+
+export { setUserRole } from './admin/setUserRole.js';
+export { registerClient } from './auth/registerClient.js';
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Milestone map — each export below arrives with its milestone.
 //
-//   M1  admin/setUserRole.ts        callable, writes custom claims + /users mirror
 //   M2  ingest/web.ts               onObjectFinalized('incoming/**')
 //   M2  core/ingestDocument.ts      the one channel-agnostic entry point
 //   M2  ocr/tasks.ts                onTaskDispatched — Vision, with retry + backoff

@@ -21,6 +21,12 @@ service cloud.firestore {
     function isClient()     { return isSignedIn() && role() == 'client'; }
     function myClientId()   { return request.auth.token.get('clientId', ''); }
 
+    // A self-registered client holds `role: 'client'` with NO clientId claim until an
+    // accountant links them. myClientId() is then '' — which would match any document
+    // whose clientId happened to be '' and, worse, let them CREATE such a document.
+    // Every client-side rule therefore gates on this, never on isClient() alone.
+    function isLinkedClient() { return isClient() && myClientId() != ''; }
+
     function changedKeys() {
       return request.resource.data.diff(resource.data).affectedKeys();
     }
@@ -37,7 +43,7 @@ service cloud.firestore {
 
     match /clients/{clientId} {
       allow read: if isAccountant()
-                  || (isClient() && clientId == myClientId());
+                  || (isLinkedClient() && clientId == myClientId());
       allow create, update: if isAccountant();
       allow delete: if false;   // archive via status, never hard-delete
     }
@@ -58,13 +64,13 @@ service cloud.firestore {
     match /documents/{docId} {
 
       allow read: if isAccountant()
-                  || (isClient()
+                  || (isLinkedClient()
                       && resource.data.clientId == myClientId()
                       && resource.data.get('deletedAt', null) == null);
 
       // A client may only open a web upload in its initial state. Every other
       // field — ocr, clientMatch, error, assignedAccountantUid — is server-written.
-      allow create: if isClient()
+      allow create: if isLinkedClient()
         && request.resource.data.clientId       == myClientId()
         && request.resource.data.channel        == 'web'
         && request.resource.data.workflowStatus == 'pending'

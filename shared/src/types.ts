@@ -45,8 +45,14 @@ export interface UserDoc {
   photoURL: string | null;
   /** Set when role === 'client'; links to /clients/{clientId}. */
   clientId: string | null;
+  /**
+   * False for a self-registered client who has not been linked to a /clients record
+   * yet. Display only — the security boundary is the absence of a clientId CLAIM,
+   * not this field, which rules never read.
+   */
   active: boolean;
   createdAt: Timestampish;
+  updatedAt: Timestampish | null;
   lastLoginAt: Timestampish | null;
 }
 
@@ -350,7 +356,38 @@ export interface GetDocumentUrlResponse {
 export interface SetUserRoleRequest {
   uid: string;
   role: Role;
+  /** Required when role === 'client'; ignored otherwise. */
   clientId?: string;
+}
+
+export interface SetUserRoleResponse {
+  uid: string;
+  role: Role;
+  clientId: string | null;
+  /**
+   * The target's refresh tokens were revoked, so their next request forces a fresh
+   * ID token. Without this an old token keeps its previous role for up to an hour.
+   */
+  tokensRevoked: boolean;
+}
+
+/**
+ * Self-registration for a client who signed themselves up.
+ *
+ * Takes no payload — it reads `request.auth` — and is idempotent: a user who already
+ * holds a role gets it echoed back rather than reset, so the SPA can call it blindly
+ * whenever it sees a token with no role claim.
+ *
+ * The result is deliberately UNLINKED: `role: 'client'` with `clientId: null`. A
+ * stranger who signs up can therefore reach no client's documents — the rules require
+ * a non-empty clientId claim — until an accountant links them via setUserRole.
+ */
+export interface RegisterClientResponse {
+  role: Role;
+  clientId: string | null;
+  active: boolean;
+  /** False when the caller already had a role and nothing was written. */
+  created: boolean;
 }
 
 export interface RetryOcrRequest {
