@@ -55,6 +55,7 @@ export { registerClient } from './auth/registerClient.js';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { createClient } from './admin/createClient.js';
+export { onDocumentUploaded } from './ingest/onUpload.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Milestone map — each export below arrives with its milestone.
