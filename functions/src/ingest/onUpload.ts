@@ -5,6 +5,7 @@ import { FieldValue, Timestamp } from 'firebase-admin/firestore';
 import { fileTypeFromBuffer } from 'file-type';
 import { bucket, db } from '../lib/firebase.js';
 import { classify, parseIncomingPath } from './classify.js';
+import { convertHeicToJpeg } from './convertHeic.js';
 import {
   COLLECTIONS,
   DUPLICATE_WINDOW_DAYS,
@@ -179,19 +180,38 @@ export const onDocumentUploaded = onObjectFinalized(
 
       const duplicateOf = await findDuplicate(clientId, sha256, docId);
 
-      // 'received' means validated and awaiting OCR — the Vision stage is not built
-      // yet (blocked on the HEIC and search decisions), so nothing advances it further.
-      // HEIC lands as skipped_ocr for now: Vision cannot read it, and OPEN ITEM #2
-      // decides whether to convert on ingest or reject outright.
-      const next: PipelineStatus = disposition === 'ocr' ? 'received' : 'skipped_ocr';
+      // HEIC is converted to JPEG here rather than rejected: Vision cannot read it and
+      // neither can any browser, so converting fixes both OCR and the preview. The
+      // output lands under converted/, which parseIncomingPath ignores — writing back
+      // into incoming/ would re-fire this trigger on its own output.
+      let storagePath = objectPath;
+      let finalType = contentType;
+      let finalBytes = bytes;
 
-      // Dotted paths so the client-written file.originalName and file.storagePath
-      // survive — a nested object would replace the whole map. These are not
-      // expressible in the model type, which describes documents as they are read.
+      if (disposition === 'needs_conversion') {
+        try {
+          const converted = await convertHeicToJpeg(objectPath, docId, fileName);
+          storagePath = converted.storagePath;
+          finalType = converted.contentType;
+          finalBytes = converted.sizeBytes;
+        } catch (err: unknown) {
+          await fail('CONVERSION_FAILED', `Could not convert HEIC image: ${String(err)}`);
+          return;
+        }
+      }
+
+      // 'received' means validated and awaiting OCR. Nothing advances it further yet —
+      // the Vision stage lands next.
+      const next: PipelineStatus = classify(finalType) === 'ocr' ? 'received' : 'skipped_ocr';
+
+      // Dotted paths so the client-written file.originalName survives — a nested
+      // object would replace the whole map. Not expressible in the model type, which
+      // describes documents as they are read.
       await docRef.update({
         'file.sha256': sha256,
-        'file.contentType': contentType,
-        'file.sizeBytes': bytes,
+        'file.contentType': finalType,
+        'file.sizeBytes': finalBytes,
+        'file.storagePath': storagePath,
         pipelineStatus: next,
         duplicateOf,
         updatedAt: FieldValue.serverTimestamp(),
@@ -199,10 +219,11 @@ export const onDocumentUploaded = onObjectFinalized(
 
       logger.info('ingest ok', {
         docId,
-        contentType,
-        bytes,
+        contentType: finalType,
+        bytes: finalBytes,
         next,
         duplicateOf,
+        converted: storagePath !== objectPath,
       });
     } catch (err: unknown) {
       logger.error('ingest failed', { docId, err: String(err) });

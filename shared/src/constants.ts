@@ -25,6 +25,12 @@ export const METRICS_DOC_ID = 'global';
 
 export const STORAGE_PREFIX = {
   incoming: 'incoming',
+  /**
+   * HEIC converted to JPEG on ingest. A separate prefix, not an in-place overwrite:
+   * writing back into incoming/ would re-fire the ingest trigger on its own output.
+   * The original HEIC stays where it landed, so provenance is not destroyed.
+   */
+  converted: 'converted',
   thumbnails: 'thumbnails',
   ocrOutput: 'ocr-output',
   ocrText: 'ocr-text',
@@ -60,6 +66,34 @@ export const OCR_INLINE_TEXT_LIMIT_BYTES = 200 * 1024;
 
 /** Always stored inline, so list views and search snippets never touch Storage. */
 export const OCR_PREVIEW_CHARS = 2000;
+
+// ─── Search (OPEN ITEM #3, decided: denormalized token array) ────────────────
+
+/**
+ * Firestore has no full-text search, so OCR text is reduced to a deduplicated token
+ * array queried with `array-contains`. Whole words only — no prefix or fuzzy matching.
+ *
+ * The cap matters: Firestore writes one index entry per array element, against a limit
+ * of roughly 40,000 index entries per document. A dense 50-page scan would otherwise
+ * produce a token array that inflates both write cost and index size.
+ */
+export const MAX_SEARCH_TOKENS = 400;
+
+/** Single characters are almost pure noise and consume cap that a real term needs. */
+export const MIN_TOKEN_LENGTH = 2;
+
+/**
+ * Dropped before the cap is applied, so common words cannot crowd out the distinctive
+ * terms people actually search for. Deliberately short: over-filtering costs recall,
+ * and an accountant searching a vendor name called "The Mill" would not thank us.
+ */
+export const SEARCH_STOPWORDS = new Set([
+  'the', 'and', 'for', 'are', 'but', 'not', 'you', 'all', 'can', 'her', 'was', 'one',
+  'our', 'out', 'his', 'has', 'had', 'were', 'they', 'from', 'this', 'that', 'with',
+  'have', 'been', 'will', 'your', 'their', 'which', 'would', 'there', 'about',
+  // Hebrew function words — documents from Israeli clients are expected.
+  'של', 'את', 'עם', 'על', 'לא', 'כל', 'זה', 'הוא', 'היא', 'אני', 'אנחנו',
+]);
 
 /** Below this average Vision confidence, flag the document for a human look. */
 export const LOW_CONFIDENCE_THRESHOLD = 0.6;

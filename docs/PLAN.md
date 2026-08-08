@@ -473,7 +473,12 @@ Janitor + health-check schedules, dead-letter alerting, GCP budget alarms + per-
 | # | Item | Needed by |
 |---|---|---|
 | 1 | Meta Business verification — **start early** | Before M5 |
-| 2 | HEIC: convert or reject? | M2 |
-| 3 | Search: Typesense/Algolia extension vs. `searchTokens` array | M2 (affects the OCR writer) |
 | 4 | Google Workspace (domain-wide delegation) or plain Gmail (OAuth refresh token)? | M4 |
 | 5 | Firm timezone + expected daily document volume (sizes the counter/quota decisions) | M2 |
+
+### Resolved 2026-08-08
+
+| # | Item | Decision |
+|---|---|---|
+| 2 | HEIC | **Convert on ingest** via `heic-convert`. Rejecting reads to a client as a broken upload. |
+| 3 | Search | **`searchTokens` array.** Keeps client financial text inside the firm's own project. Whole-word matching only. Retrofitting to a real engine is a backfill over retained full text, not a re-OCR — the note above overstated the lock-in. |

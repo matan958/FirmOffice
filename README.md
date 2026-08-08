@@ -163,10 +163,23 @@ Decisions the plan deliberately left to you, with the milestone that forces them
 | # | Item | Needed by |
 |---|---|---|
 | 1 | Meta Business verification — **start the paperwork early**, 1–2 weeks of calendar time | before M5 |
-| 2 | HEIC: convert on ingest, or reject? Vision cannot read it and iPhones send it constantly | M2 |
-| 3 | Search: Typesense/Algolia extension vs. a denormalized `searchTokens` array. Firestore has no full-text search, and retrofitting means reprocessing every document | M2 |
 | 4 | Gmail auth: Workspace domain-wide delegation, or a plain mailbox + OAuth refresh token in Secret Manager? | M4 |
 | 5 | Firm timezone + expected daily document volume | M2 |
+
+### Decided
+
+- **HEIC → convert on ingest** (2026-08-08). `heic-convert` (pure JS; `sharp` needs
+  libheif, which complicates the Functions runtime). Rejecting would read to a client
+  as "your upload failed", and iPhones send HEIC constantly.
+- **Search → denormalized `searchTokens` array** (2026-08-08). Free, no extra vendor,
+  and no continuous copy of clients' financial text into third-party SaaS — which for
+  a CPA firm is a confidentiality question, not just a technical one. The cost is whole
+  -word matching only: no prefix, typo tolerance or ranking.
+
+  This is **less locked-in than it looks**. Full text is always retained (inline under
+  200 KB, spilled to `ocr-text/` above), so moving to Typesense/Algolia later is a
+  backfill over stored text — Vision is never paid for twice. The irreversible mistake
+  would be discarding full text to save space; the schema deliberately does not.
 
 ## Roadmap
 
