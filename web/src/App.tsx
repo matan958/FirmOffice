@@ -8,6 +8,7 @@ import SignupPage from '@/features/auth/SignupPage';
 import PendingPage from '@/features/auth/PendingPage';
 import ClientsPage from '@/features/clients/ClientsPage';
 import UsersPage from '@/features/admin/UsersPage';
+import PortalPage from '@/features/portal/PortalPage';
 
 const ACCOUNTANT = ['accountant', 'admin'] as const;
 const ADMIN = ['admin'] as const;
@@ -37,7 +38,7 @@ export default function App() {
             <Route path="/health" element={<HealthPage />} />
 
             <Route element={<RequireRole allow={CLIENT} />}>
-              <Route path="/portal" element={<Placeholder title="Client Portal" milestone="M2" />} />
+              <Route path="/portal" element={<PortalPage />} />
             </Route>
 
             <Route element={<RequireRole allow={ACCOUNTANT} />}>

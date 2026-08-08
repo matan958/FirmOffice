@@ -13,7 +13,7 @@
     "emulators": "firebase emulators:start --import=./.emulator-data --export-on-exit=./.emulator-data",
     "build": "npm --prefix functions run build && npm --prefix web run build",
     "typecheck": "npm --prefix shared run typecheck && npm --prefix web run typecheck && npm --prefix functions run typecheck",
-    "rules:test": "firebase emulators:exec --project demo-firmoffice --only firestore \"npm --prefix functions run test:rules\"",
+    "rules:test": "firebase emulators:exec --project demo-firmoffice --only firestore,storage \"npm --prefix functions run test:rules\"",
     "deploy": "npm run build && firebase deploy",
     "deploy:rules": "firebase deploy --only firestore:rules,firestore:indexes,storage",
     "set-cors": "node scripts/set-cors.mjs",

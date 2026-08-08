@@ -20,8 +20,12 @@ service firebase.storage {
     function isClient()   { return isSignedIn() && role() == 'client'; }
     function myClientId() { return request.auth.token.get('clientId', ''); }
 
-    // Mirrors firestore.rules: a self-registered client has no clientId claim yet, so
-    // myClientId() is ''. Gate on this rather than isClient() alone.
+    // Mirrors firestore.rules, but note the asymmetry: there, `clientId` is a document
+    // FIELD that can genuinely hold '', so the guard is load-bearing and has tests that
+    // fail without it. Here `clientId` is a PATH SEGMENT, and no real object path has an
+    // empty segment — an unlinked client is already denied by `clientId == myClientId()`
+    // on its own. This is defence in depth against a future rule that matches on
+    // something other than the path, not a hole being plugged.
     function isLinkedClient() { return isClient() && myClientId() != ''; }
 
     // Client Portal uploads. Create-only, into the client's own prefix, at the

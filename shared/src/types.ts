@@ -162,6 +162,11 @@ export interface FileMeta {
   /** Sniffed server-side from magic bytes — never the client-supplied MIME type. */
   contentType: string;
   sizeBytes: number;
+  /**
+   * Empty string until the ingest trigger has read the bytes and hashed them. The
+   * uploader never supplies this: a client-computed hash could be forged, and the
+   * duplicate check has to be trustworthy to be worth running.
+   */
   sha256: string;
   pageCount?: number;
 }
