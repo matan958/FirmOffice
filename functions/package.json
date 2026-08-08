@@ -20,6 +20,7 @@
     "file-type": "^21.3.4",
     "firebase-admin": "^14.2.0",
     "firebase-functions": "^7.3.2",
+    "google-auth-library": "^11.0.0",
     "heic-convert": "^2.1.0",
     "unpdf": "^1.8.0"
   },

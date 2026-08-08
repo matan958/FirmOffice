@@ -146,11 +146,33 @@ export type ClientMatchMethod =
   | 'replyTo'
   | 'phone'
   | 'manual'
-  | 'portal';
+  | 'portal'
+  /** The ladder ran and every rung missed. Recorded, not left null — see below. */
+  | 'none';
 
 export interface ClientMatch {
   method: ClientMatchMethod;
   confidence: number;
+  /** The identifier document that matched, e.g. `email:john@acme.com`. */
+  matchedIdentifier?: string | null;
+  /**
+   * A candidate the ladder found but did NOT auto-file, because its confidence fell
+   * below AUTO_ASSIGN_MIN_CONFIDENCE — a bare domain match, a reply-to, or anything
+   * whose sender authentication failed.
+   *
+   * Kept separate from `clientId` on purpose: the document stays in the Unassigned
+   * queue (so a human decides), but the UI can offer "file under Acme Ltd?" as one
+   * click instead of making them search. Writing a guess into clientId instead would
+   * silently file a possibly-forged invoice into a real client's folder.
+   */
+  suggestedClientId?: string | null;
+  suggestedClientName?: string | null;
+  /**
+   * True when a rung matched but sender authentication (DKIM/SPF) explicitly failed,
+   * so the confidence was cut. Surfaced in the UI — "this claims to be from X" is a
+   * materially different statement from "this is from X".
+   */
+  authDowngraded?: boolean;
   /** Set when an accountant resolved it by hand from the Unassigned queue. */
   resolvedBy?: string;
   resolvedAt: Timestampish;
@@ -242,6 +264,11 @@ export interface GmailSource {
   from: string;
   subject: string;
   attachmentId: string;
+  /**
+   * The `+tag` the message was addressed to, when it arrived at a per-client drop
+   * address. Null for mail sent to the plain ingest mailbox.
+   */
+  toAlias: string | null;
   /** DKIM/SPF results from the Authentication-Results header. A `From:` header is
    *  trivially spoofable, so a failure downgrades confidence to Unassigned. */
   dkimPass: boolean | null;
@@ -370,6 +397,54 @@ export interface MetricsDoc {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Operational collections
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * /ingestState/gmail — the poller's own health record.
+ *
+ * Deliberately NOT a cursor. The poller re-queries a fixed lookback window every run
+ * and relies on the idempotency ledger to skip what it has already seen, so an outage
+ * shorter than the window self-heals with no state to reconcile. This document exists
+ * to answer "is ingestion actually alive?", which is the failure nobody notices:
+ * a poller that silently stopped looks exactly like a quiet week.
+ */
+export interface IngestStateDoc {
+  lastPollAt: Timestampish | null;
+  /** Last run that completed without throwing — the field the silent-failure alarm reads. */
+  lastSuccessAt: Timestampish | null;
+  lastError: string | null;
+  consecutiveFailures: number;
+  /** Cumulative, for a sanity check against the documents collection. */
+  totalIngested: number;
+}
+
+/**
+ * /processedMessages/{provider}:{externalId} — the idempotency ledger.
+ *
+ * Written in the SAME batch as the document it records. If the document create fails
+ * the ledger entry rolls back with it, so a retry re-ingests rather than skipping a
+ * message that was never actually stored. TTL 90 days, set in the console.
+ */
+export interface ProcessedMessageDoc {
+  docId: string;
+  channel: Channel;
+  processedAt: Timestampish;
+  /** TTL policy field. Firestore deletes the row once this passes. */
+  expiresAt: Timestampish;
+}
+
+/** /failedIngestions/{id} — dead letter. Nothing is allowed to vanish silently. */
+export interface FailedIngestionDoc {
+  channel: Channel;
+  externalId: string;
+  reason: string;
+  payload: Record<string, unknown>;
+  attempts: number;
+  at: Timestampish;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Callable function contracts
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -444,6 +519,43 @@ export interface RetryOcrResponse {
   /** False when the document was already succeeding and nothing needed re-running. */
   requeued: boolean;
   reason?: string;
+}
+
+/**
+ * Records a sender→client mapping learned from an accountant's manual assignment —
+ * the "always file mail from john@acme.com under Acme Ltd" checkbox.
+ *
+ * This is what stops the Unassigned queue being a permanent tax: every hand-filed
+ * document can teach the ladder one identifier, so manual work trends to zero as the
+ * firm's real-world identifier set gets captured.
+ */
+export interface LinkIdentifierRequest {
+  type: IdentifierType;
+  /** Raw value; normalized server-side so the caller cannot desync the key format. */
+  value: string;
+  clientId: string;
+  /** Also re-file every earlier Unassigned document this identifier would have matched. */
+  backfill?: boolean;
+}
+
+export interface LinkIdentifierResponse {
+  key: string;
+  clientId: string;
+  /** False when the identifier already existed and was left pointing where it was. */
+  created: boolean;
+  /** Set when the identifier is already claimed by a DIFFERENT client. */
+  conflictWithClientId?: string;
+  /** How many previously-unassigned documents were re-filed. */
+  backfilled: number;
+}
+
+export interface PollGmailResponse {
+  ok: boolean;
+  messagesSeen: number;
+  attachmentsIngested: number;
+  skippedDuplicates: number;
+  skippedInline: number;
+  errors: string[];
 }
 
 export interface HealthCheckResponse {

@@ -44,6 +44,37 @@ export function incomingPath(clientId: string | null, docId: string, fileName: s
   return `${STORAGE_PREFIX.incoming}/${clientId ?? UNASSIGNED_CLIENT_PREFIX}/${docId}/${fileName}`;
 }
 
+/**
+ * Storage object names disallow `#`, `[`, `]`, `*` and `?`, and control characters or
+ * a leading dot make a path that is awkward to handle everywhere downstream. The
+ * ORIGINAL name is preserved in file.originalName — this only sanitizes the path.
+ *
+ * Shared rather than browser-side: a mail attachment's filename comes from whoever
+ * sent it and gets far less scrutiny than a file a client picked in a file dialog.
+ * `..` is collapsed too — a Storage path is not a filesystem path, but a name that
+ * looks like traversal ends up in logs, ZIP exports and download headers.
+ */
+export function safeObjectName(name: string): string {
+  // Drop C0 control characters and DEL. Done with codepoint arithmetic rather than
+  // a regex range so that no literal control byte ever sits in this source file —
+  // they are invisible in most editors and do not survive a careless copy-paste.
+  const printable = Array.from(name)
+    .filter((ch) => {
+      const code = ch.codePointAt(0) ?? 0;
+      return code >= 0x20 && code !== 0x7f;
+    })
+    .join('');
+
+  const cleaned = printable
+    .replace(/[#[\]*?/\\]/g, '_')
+    .replace(/\.{2,}/g, '.')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^\.+/, '');
+
+  return cleaned.slice(0, 200) || 'file';
+}
+
 // ─── Limits ──────────────────────────────────────────────────────────────────
 
 /** Overall upload ceiling, enforced in storage.rules AND re-checked server-side. */
@@ -225,9 +256,69 @@ export const OCR_TASK_QUEUE = 'ocr-queue';
 export const STUCK_UPLOADING_MINUTES = 15;
 export const STUCK_OCR_MINUTES = 30;
 
-/** Gmail poller lookback. Any outage shorter than this self-heals on the next run. */
+// ─── Gmail ingestion ─────────────────────────────────────────────────────────
+
+/**
+ * Poller lookback. The query is `newer_than:{N}d -label:{processed}`, so any outage
+ * shorter than this self-heals on the next successful run with no cursor to reconcile
+ * and no gap detection. Past it, a manual backfill is needed — which is the trade for
+ * having no state that can silently drift.
+ */
 export const GMAIL_LOOKBACK_DAYS = 2;
-export const GMAIL_PROCESSED_LABEL = 'Processed/FirmOffice';
+
+/**
+ * Applied to a message once every attachment on it is safely stored.
+ *
+ * Both label names are free of spaces on purpose. They are excluded from the poller's
+ * query via Gmail's `-label:` search operator, whose quoting rules around spaces and
+ * nesting are inconsistent enough that a mis-parsed name would silently match nothing
+ * — leaving the exclusion inert and the poller re-reading its whole window forever.
+ */
+export const GMAIL_PROCESSED_LABEL = 'FirmOffice/Processed';
+
+/** Applied instead when a message carried something a human needs to look at. */
+export const GMAIL_ATTENTION_LABEL = 'FirmOffice/Attention';
+
+/**
+ * Cap per run. The lookback window already bounds this, but a first run against a
+ * busy mailbox — or a mailbox where labelling silently fails — must not fan out into
+ * hundreds of Vision calls before anyone sees the bill.
+ */
+export const GMAIL_MAX_MESSAGES_PER_RUN = 25;
+
+/**
+ * Inline images below this size are treated as email-signature furniture (logos,
+ * social icons, tracking pixels) rather than documents.
+ *
+ * Size alone is not the test — a `Content-ID` and a `Content-Disposition: inline`
+ * are the real signals, checked in gmail/parts.ts. This is the backstop for senders
+ * whose client omits both. Get this wrong and every message from a corporate sender
+ * spawns three junk documents that an accountant has to clear by hand.
+ */
+export const INLINE_IMAGE_MAX_BYTES = 100 * 1024;
+
+/**
+ * Attachment types Gmail delivers that we deliberately reject with a notice rather
+ * than store: an archive or a forwarded .eml is a CONTAINER, and storing it means the
+ * firm has a document it cannot read, OCR, or search. Unpacking them is M6 work.
+ */
+export const CONTAINER_MIME = [
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/x-rar-compressed',
+  'application/vnd.rar',
+  'application/x-7z-compressed',
+  'application/gzip',
+  'message/rfc822',
+] as const;
+
+/** `[ACME-123]` anywhere in a subject line. Case-insensitive; captures the code. */
+export const SUBJECT_CODE_RE = /\[([A-Za-z0-9][A-Za-z0-9_-]{1,31})\]/;
+
+/** Ledger key. Attachment index, not attachmentId — see gmail/parts.ts. */
+export function processedMessageKey(provider: string, externalId: string): string {
+  return `${provider}:${externalId}`;
+}
 
 /** Window for treating identical bytes from the same client as a re-send. */
 export const DUPLICATE_WINDOW_DAYS = 90;

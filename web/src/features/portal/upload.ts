@@ -8,6 +8,7 @@ import {
   OCR_SUPPORTED_MIME,
   STORE_ONLY_MIME,
   incomingPath,
+  safeObjectName,
 } from '@shared';
 
 /**
@@ -40,31 +41,6 @@ export interface UploadItem {
   name: string;
   size: number;
   state: UploadState;
-}
-
-/**
- * Storage object names disallow `#`, `[`, `]`, `*` and `?`, and control characters or
- * a leading dot make a path that is awkward to handle everywhere downstream. The
- * ORIGINAL name is preserved in file.originalName — this only sanitizes the path.
- */
-export function safeObjectName(name: string): string {
-  // Drop C0 control characters and DEL. Done with codepoint arithmetic rather than
-  // a regex range so that no literal control byte ever sits in this source file —
-  // they are invisible in most editors and do not survive a careless copy-paste.
-  const printable = Array.from(name)
-    .filter((ch) => {
-      const code = ch.codePointAt(0) ?? 0;
-      return code >= 0x20 && code !== 0x7f;
-    })
-    .join("");
-
-  const cleaned = printable
-    .replace(/[#[\]*?/\\]/g, "_")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/^\.+/, "");
-
-  return cleaned.slice(0, 200) || "file";
 }
 
 export function rejectReason(file: File): string | null {

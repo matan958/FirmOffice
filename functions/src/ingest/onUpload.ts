@@ -69,6 +69,12 @@ async function readHashAndHead(
  * invoice and then WhatsApp the same one. The copy is kept (it may carry a different
  * caption or context) and merely flagged, so the inbox can collapse it rather than
  * silently discarding something a client believes they sent.
+ *
+ * The clientId comes from the DOCUMENT, not from the storage path. Those agree for a
+ * web upload but not for an unassigned Gmail document, whose path segment is the
+ * literal `_unassigned` while its `clientId` field is null — querying on the path
+ * value would match nothing at all and quietly disable de-duplication for exactly the
+ * channel that produces the most duplicates.
  */
 async function findDuplicate(
   clientId: string,
@@ -112,7 +118,7 @@ export const onDocumentUploaded = onObjectFinalized(
     const parsed = parseIncomingPath(objectPath);
     if (!parsed) return; // Not an incoming upload — thumbnails, OCR output, etc.
 
-    const { clientId, docId, fileName } = parsed;
+    const { docId, fileName } = parsed;
     const docRef = db().doc(`${COLLECTIONS.documents}/${docId}`);
     const snap = await docRef.get();
 
@@ -179,7 +185,11 @@ export const onDocumentUploaded = onObjectFinalized(
         .setMetadata({ contentType, contentDisposition: 'attachment' })
         .catch((err: unknown) => logger.warn('setMetadata failed', { docId, err: String(err) }));
 
-      const duplicateOf = await findDuplicate(clientId, sha256, docId);
+      // Unassigned documents are not compared: everything sitting in the Unassigned
+      // queue would otherwise be "the same client" as everything else there.
+      const duplicateOf = current.clientId
+        ? await findDuplicate(current.clientId, sha256, docId)
+        : null;
 
       // HEIC is converted to JPEG here rather than rejected: Vision cannot read it and
       // neither can any browser, so converting fixes both OCR and the preview. The

@@ -53,9 +53,26 @@ service cloud.firestore {
     // identifier (e.g. "email:john@acme.com"), which gives atomic uniqueness.
     // Clients must never see the firm's full identifier map.
 
+    // The single most damaging row this table can hold is `domain:gmail.com` — one
+    // such entry maps every Gmail user on earth to a single client. Three separate
+    // places refuse it: the resolver never looks a public domain up, linkIdentifier
+    // rejects it with an explanation, and this rule closes the third path, which is a
+    // direct client-side write that the accountant permission above otherwise allows.
+    // The list here is short on purpose; the exhaustive one lives in
+    // PUBLIC_EMAIL_DOMAINS, and rules cannot import it.
+    function isPublicDomainRule(key) {
+      return key.split(':')[0] == 'domain'
+             && key.split(':').size() > 1
+             && key.split(':')[1] in [
+                  'gmail.com', 'googlemail.com', 'outlook.com', 'hotmail.com',
+                  'live.com', 'yahoo.com', 'icloud.com', 'me.com', 'aol.com',
+                  'proton.me', 'protonmail.com', 'walla.com', 'walla.co.il'
+                ];
+    }
+
     match /clientIdentifiers/{key} {
       allow read:           if isAccountant();
-      allow create, update: if isAccountant();
+      allow create, update: if isAccountant() && !isPublicDomainRule(key);
       allow delete:         if isAdmin();
     }
 

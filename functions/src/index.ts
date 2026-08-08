@@ -57,6 +57,13 @@ export { getDocumentUrl } from './admin/getDocumentUrl.js';
 export { retryOcr } from './ocr/retry.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
+// M4 — Gmail ingestion
+// ─────────────────────────────────────────────────────────────────────────────
+
+export { pollGmail, pollGmailNow } from './gmail/poll.js';
+export { linkIdentifier } from './admin/linkIdentifier.js';
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Milestone map — each export below arrives with its milestone.
 //
 //   M2  ingest/web.ts               onObjectFinalized('incoming/**')
@@ -65,7 +72,7 @@ export { retryOcr } from './ocr/retry.js';
 //   M2  metrics/counters.ts         onDocumentWritten — increments /metrics/global
 //   M3  admin/getDocumentUrl.ts     callable, 15-min V4 signed URL + `viewed` audit
 //   M3  ocr/retry.ts                callable, re-enqueues a failed OCR task
-//   M4  ingest/gmail.ts             onSchedule poller + mapping/resolveClient.ts
+//   M4  gmail/poll.ts               onSchedule poller + mapping/resolveClient.ts
 //   M5  ingest/whatsapp.ts          onRequest webhook, 200-then-async
 //   M6  jobs/janitor.ts             onSchedule — unsticks 'uploading' / 'ocr_running'
 //   M6  jobs/healthcheck.ts         onSchedule — alerts on silent ingestion failure

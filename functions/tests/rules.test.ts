@@ -284,6 +284,64 @@ describe('clientIdentifiers — the mapping table is accountant-only', () => {
       }),
     );
   });
+
+  it('refuses a domain rule pointing at a public mailbox provider', async () => {
+    // One `domain:gmail.com` row maps every Gmail user on earth to a single client,
+    // and it is created by the most natural action available — an accountant ticking
+    // "always file from this domain" on a client who uses a personal address. The
+    // resolver and the callable both refuse it; this closes the direct-write path.
+    await assertFails(
+      setDoc(doc(asAccountant(), 'clientIdentifiers/domain:gmail.com'), {
+        type: 'domain',
+        value: 'gmail.com',
+        clientId: CLIENT_A,
+        confidence: 0.6,
+        verified: true,
+        source: 'manual',
+        createdBy: 'acct-1',
+        createdAt: new Date(),
+        lastMatchedAt: null,
+        matchCount: 0,
+      }),
+    );
+  });
+
+  it('still allows a corporate domain rule', async () => {
+    await assertSucceeds(
+      setDoc(doc(asAccountant(), 'clientIdentifiers/domain:acme.com'), {
+        type: 'domain',
+        value: 'acme.com',
+        clientId: CLIENT_A,
+        confidence: 0.6,
+        verified: true,
+        source: 'manual',
+        createdBy: 'acct-1',
+        createdAt: new Date(),
+        lastMatchedAt: null,
+        matchCount: 0,
+      }),
+    );
+  });
+
+  it('does not mistake an email identifier for a domain rule', async () => {
+    // `email:someone@gmail.com` is a perfectly legitimate row — the blocklist applies
+    // to domain rules only. A guard that matched on the value alone would break every
+    // client who uses a personal address.
+    await assertSucceeds(
+      setDoc(doc(asAccountant(), 'clientIdentifiers/email:someone@gmail.com'), {
+        type: 'email',
+        value: 'someone@gmail.com',
+        clientId: CLIENT_A,
+        confidence: 0.95,
+        verified: true,
+        source: 'manual',
+        createdBy: 'acct-1',
+        createdAt: new Date(),
+        lastMatchedAt: null,
+        matchCount: 0,
+      }),
+    );
+  });
 });
 
 describe('unlinked client — signup grants a role but no access', () => {
