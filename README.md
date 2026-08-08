@@ -122,9 +122,13 @@ None of this can be scripted; it needs a Google account with billing.
    Secret Manager, Eventarc, Cloud Build. (Gmail API in M4.)
 5. **Create Firestore** (Native mode) and a **Storage bucket** — put both in the same
    region as `FUNCTIONS_REGION` in `shared/src/constants.ts` (`us-central1`).
-6. **Register a Web app**, then paste the config into `web/.env.local`.
-7. **Put the real project ID in `.firebaserc`** (replacing `REPLACE_WITH_…`).
-8. **Grant the signing permission.** Signed preview URLs fail without it, and the error
+6. **Enable the Email/Password provider** — Authentication → Sign-in method. Nothing in
+   M1 works without it: sign-in fails with `auth/operation-not-allowed`, which does not
+   obviously mean "you skipped a console toggle". The emulator allows it by default, so
+   this only bites on the real project.
+7. **Register a Web app**, then paste the config into `web/.env.local`.
+8. **Put the real project ID in `.firebaserc`** (replacing `REPLACE_WITH_…`).
+9. **Grant the signing permission.** Signed preview URLs fail without it, and the error
    message does not say so:
    ```bash
    gcloud iam service-accounts add-iam-policy-binding \
@@ -132,15 +136,15 @@ None of this can be scripted; it needs a Google account with billing.
      --member="serviceAccount:<PROJECT_NUMBER>-compute@developer.gserviceaccount.com" \
      --role="roles/iam.serviceAccountTokenCreator" --project=<PROJECT_ID>
    ```
-9. **Apply bucket CORS.** `react-pdf` fetches signed URLs cross-origin with byte-range
-   requests; without this the viewer fails pointing nowhere near the cause. Edit the
-   origins in `cors.json`, then either `npm run set-cors` (needs
-   `gcloud auth application-default login`) or, from **Cloud Shell**:
-   ```bash
-   gcloud storage buckets update gs://<BUCKET> --cors-file=cors.json
-   ```
-10. **Deploy indexes and rules first:** `npm run deploy:rules`.
-11. **CI secrets** (GitHub → Settings → Secrets and variables → Actions): the six
+10. **Apply bucket CORS.** `react-pdf` fetches signed URLs cross-origin with byte-range
+    requests; without this the viewer fails pointing nowhere near the cause. Edit the
+    origins in `cors.json`, then either `npm run set-cors` (needs
+    `gcloud auth application-default login`) or, from **Cloud Shell**:
+    ```bash
+    gcloud storage buckets update gs://<BUCKET> --cors-file=cors.json
+    ```
+11. **Deploy indexes and rules first:** `npm run deploy:rules`.
+12. **CI secrets** (GitHub → Settings → Secrets and variables → Actions): the six
     `VITE_FIREBASE_*` values plus `FIREBASE_SERVICE_ACCOUNT` (a service-account JSON key
     with Firebase Admin, Cloud Functions Admin, Cloud Datastore Owner, Service Account
     User). Then, on the **Variables** tab, set `DEPLOY_ENABLED` to `true` — CI's deploy
