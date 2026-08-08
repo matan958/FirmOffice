@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react';
 import { Link, Route, Routes } from 'react-router-dom';
 import HealthPage from '@/pages/HealthPage';
 import Shell from '@/components/Shell';
@@ -10,6 +11,13 @@ import ClientsPage from '@/features/clients/ClientsPage';
 import UsersPage from '@/features/admin/UsersPage';
 import PortalPage from '@/features/portal/PortalPage';
 import InboxPage from '@/features/inbox/InboxPage';
+/**
+ * Lazy: this route pulls in react-pdf and the ~1 MB pdf.js worker. Bundled eagerly it
+ * doubled the entry chunk for every page, including the login screen — so a client
+ * uploading a photo paid to download a PDF renderer they will never open. Only
+ * accountants reach the viewer, and only on demand.
+ */
+const DocumentViewerPage = lazy(() => import('@/features/viewer/DocumentViewerPage'));
 
 const ACCOUNTANT = ['accountant', 'admin'] as const;
 const ADMIN = ['admin'] as const;
@@ -44,6 +52,14 @@ export default function App() {
 
             <Route element={<RequireRole allow={ACCOUNTANT} />}>
               <Route path="/inbox" element={<InboxPage />} />
+              <Route
+                path="/inbox/:docId"
+                element={
+                  <Suspense fallback={<p className="p-8 text-sm text-ink-600">Loading viewer…</p>}>
+                    <DocumentViewerPage />
+                  </Suspense>
+                }
+              />
               <Route path="/clients" element={<ClientsPage />} />
             </Route>
 
