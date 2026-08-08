@@ -9,6 +9,7 @@ import PendingPage from '@/features/auth/PendingPage';
 import ClientsPage from '@/features/clients/ClientsPage';
 import UsersPage from '@/features/admin/UsersPage';
 import PortalPage from '@/features/portal/PortalPage';
+import InboxPage from '@/features/inbox/InboxPage';
 
 const ACCOUNTANT = ['accountant', 'admin'] as const;
 const ADMIN = ['admin'] as const;
@@ -42,10 +43,7 @@ export default function App() {
             </Route>
 
             <Route element={<RequireRole allow={ACCOUNTANT} />}>
-              <Route
-                path="/inbox"
-                element={<Placeholder title="Accountant Dashboard" milestone="M3" />}
-              />
+              <Route path="/inbox" element={<InboxPage />} />
               <Route path="/clients" element={<ClientsPage />} />
             </Route>
 
@@ -58,15 +56,6 @@ export default function App() {
         <Route path="*" element={<NotFound />} />
       </Routes>
     </AuthProvider>
-  );
-}
-
-function Placeholder({ title, milestone }: { title: string; milestone: string }) {
-  return (
-    <main className="mx-auto max-w-2xl p-8">
-      <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-      <p className="mt-2 text-sm text-ink-600">Not built yet — arrives in milestone {milestone}.</p>
-    </main>
   );
 }
 
