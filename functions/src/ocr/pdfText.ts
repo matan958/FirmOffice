@@ -33,7 +33,14 @@ export interface PdfProbe {
  * A null extraction means "this is a scan — send it to Vision".
  */
 export async function extractPdfTextLayer(bytes: Uint8Array): Promise<PdfProbe> {
-  const pdf = await getDocumentProxy(bytes);
+  // pdfjs REJECTS a Node Buffer outright — "Please provide binary data as Uint8Array,
+  // rather than Buffer" — even though Buffer extends Uint8Array. Storage downloads
+  // return Buffers, so normalising here is the difference between working in
+  // production and only working in tests, where fixtures arrive as plain Uint8Arrays.
+  // Buffer.from(...).buffer would share memory with the pool; this copies the view.
+  const data = Buffer.isBuffer(bytes) ? new Uint8Array(bytes) : bytes;
+
+  const pdf = await getDocumentProxy(data);
   const { totalPages, text } = await extractText(pdf, { mergePages: false });
 
   const perPage: string[] = Array.isArray(text) ? text : [text];

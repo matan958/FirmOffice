@@ -61,6 +61,25 @@ describe('extractPdfTextLayer — digital-native PDFs', () => {
   });
 });
 
+describe('extractPdfTextLayer — input types', () => {
+  it('accepts a Node Buffer, which is what Storage downloads actually return', async () => {
+    // Regression: pdfjs rejects a Buffer outright despite Buffer extending Uint8Array.
+    // Every test fixture here is a plain Uint8Array from pdf-lib, so the suite passed
+    // while production — where bucket().download() yields a Buffer — failed on every
+    // single PDF. Tests must exercise the type the caller really supplies.
+    const bytes = await makePdf([DENSE('BUFFERCASE')]);
+    const probe = await extractPdfTextLayer(Buffer.from(bytes));
+
+    expect(probe.pageCount).toBe(1);
+    expect(probe.extraction?.fullText).toContain('BUFFERCASE');
+  });
+
+  it('still accepts a plain Uint8Array', async () => {
+    const probe = await extractPdfTextLayer(await makePdf([DENSE('ARRAYCASE')]));
+    expect(probe.extraction?.fullText).toContain('ARRAYCASE');
+  });
+});
+
 describe('extractPdfTextLayer — falling through to OCR', () => {
   it('returns no extraction for a page with no text at all', async () => {
     // A scan: pdfjs finds nothing, so this must go to Vision.

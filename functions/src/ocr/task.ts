@@ -81,8 +81,16 @@ export async function runOcr(
     if (contentType === 'application/pdf') {
       const [bytes] = await bucket().file(storagePath).download();
       const probe = await extractPdfTextLayer(bytes).catch((err: unknown) => {
-        // A PDF that will not even open is encrypted or corrupt — not a Vision problem.
-        throw Object.assign(new Error(String(err)), { ocrCode: 'PDF_ENCRYPTED' as ErrorCode });
+        // Discriminate rather than blame encryption for everything. Labelling every
+        // failure PDF_ENCRYPTED once meant a plain type error reached the user as
+        // "this PDF is password-protected" — a diagnosis that sends them looking for a
+        // password that does not exist.
+        const name = (err as { name?: string })?.name;
+        const message = String((err as Error)?.message ?? err);
+        const encrypted = name === 'PasswordException' || /password/i.test(message);
+        throw Object.assign(new Error(message), {
+          ocrCode: (encrypted ? 'PDF_ENCRYPTED' : 'FILE_CORRUPT') satisfies ErrorCode,
+        });
       });
 
       if (probe.pageCount > VISION_MAX_PAGES) {
