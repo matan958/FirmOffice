@@ -133,8 +133,21 @@ None of this can be scripted; it needs a Google account with billing.
    (Vision, Gmail, Meta) on Spark.
 3. **Set a budget alert** in Cloud Billing before anything else runs. Vision is roughly
    $1.50 per 1000 pages and a misconfigured poller can reprocess an entire inbox.
-4. **Enable APIs** in the Cloud Console: Cloud Vision, Cloud Tasks, Cloud Scheduler,
-   Secret Manager, Eventarc, Cloud Build. (Gmail API in M4.)
+4. **Enable APIs.** Free — you pay for usage, not for enabling. From Cloud Shell:
+   ```bash
+   gcloud services enable \
+     compute.googleapis.com iamcredentials.googleapis.com \
+     cloudfunctions.googleapis.com run.googleapis.com \
+     cloudbuild.googleapis.com artifactregistry.googleapis.com \
+     eventarc.googleapis.com vision.googleapis.com \
+     cloudtasks.googleapis.com cloudscheduler.googleapis.com \
+     secretmanager.googleapis.com --project=<PROJECT_ID>
+   ```
+   `compute` and `iamcredentials` are the two that are easy to miss and hard to
+   diagnose: **enabling Compute Engine is what creates the default service account**
+   that step 9 grants a role to, and without it that step fails with
+   *"Unknown service account"*. `iamcredentials` is what actually signs the URLs.
+   (Gmail API in M4.)
 5. **Create Firestore** (Native mode) and a **Storage bucket**, both in the US.
    > **Do this in the console, deliberately.** `firebase deploy --only
    > firestore:rules,firestore:indexes` will silently CREATE the database if none
@@ -147,8 +160,9 @@ None of this can be scripted; it needs a Google account with billing.
    this only bites on the real project.
 7. **Register a Web app**, then paste the config into `web/.env.local`.
 8. **Put the real project ID in `.firebaserc`** (replacing `REPLACE_WITH_…`).
-9. **Grant the signing permission.** Signed preview URLs fail without it, and the error
-   message does not say so:
+9. **Grant the signing permission.** Requires step 4 to have run first — the service
+   account this names does not exist until Compute Engine is enabled. Signed preview
+   URLs fail without this grant, and the error message does not say so:
    ```bash
    gcloud iam service-accounts add-iam-policy-binding \
      <PROJECT_NUMBER>-compute@developer.gserviceaccount.com \
