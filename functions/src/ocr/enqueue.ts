@@ -2,10 +2,17 @@ import { getFunctions } from 'firebase-admin/functions';
 import { logger } from 'firebase-functions';
 import { isEmulated } from '../lib/firebase.js';
 import { runOcr } from './task.js';
+import { FUNCTIONS_REGION } from '../shared.js';
 import type { OcrTaskPayload } from './task.js';
 
-/** Must match the exported function name in index.ts — Cloud Tasks resolves by name. */
-const OCR_QUEUE = 'ocrTask';
+/**
+ * Fully-qualified queue name. The bare form `taskQueue('ocrTask')` resolves against
+ * the DEFAULT region, us-central1 — not the region the function was deployed to. The
+ * enqueue then succeeds against a queue nobody is listening to, logs "ocr enqueued",
+ * and the document sits in ocr_queued forever with no error anywhere. Including the
+ * location is what makes it reach the deployed handler.
+ */
+const OCR_QUEUE = `locations/${FUNCTIONS_REGION}/functions/ocrTask`;
 
 /**
  * Hands a document to the OCR queue.

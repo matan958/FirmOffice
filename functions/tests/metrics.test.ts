@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeChange, contribution, hasWork } from '../src/metrics/deltas.js';
+import { computeChange, contribution, hasWork, metricsPatch } from '../src/metrics/deltas.js';
 import type { DocumentDoc } from '../../shared/src/index.js';
 
 /**
@@ -139,6 +139,41 @@ describe('computeChange — assignment and deletion', () => {
       from: null,
       to: null,
     });
+  });
+});
+
+describe('metricsPatch — must be nested, never dotted', () => {
+  it('nests counts under a real map', () => {
+    // This shipped broken once. set(ref, data, {merge:true}) treats a dotted key as a
+    // LITERAL field name — only update() reads it as a path — so { 'counts.pending': 1 }
+    // creates a field called "counts.pending" and metrics.counts stays undefined. The
+    // badges then read nothing, silently, forever.
+    const patch = metricsPatch(computeChange(undefined, docOf()));
+    expect(patch).toEqual({ counts: { pending: 1 }, byChannel: { web: 1 } });
+  });
+
+  it('produces no key containing a dot, at any depth', () => {
+    const patch = metricsPatch(
+      computeChange(docOf({ clientId: null }), docOf({ workflowStatus: 'processed' })),
+    );
+    const keys = [
+      ...Object.keys(patch),
+      ...Object.keys(patch.counts ?? {}),
+      ...Object.keys(patch.byChannel ?? {}),
+    ];
+    expect(keys.length).toBeGreaterThan(0);
+    for (const k of keys) expect(k).not.toContain('.');
+  });
+
+  it('omits empty groups rather than writing empty maps', () => {
+    // An updatedAt-only touch must not rewrite counts with nothing in it.
+    expect(metricsPatch(computeChange(docOf(), docOf()))).toEqual({});
+  });
+
+  it('omits byChannel on updates, keeping it create-only', () => {
+    const patch = metricsPatch(computeChange(docOf(), docOf({ workflowStatus: 'processed' })));
+    expect(patch.byChannel).toBeUndefined();
+    expect(patch.counts).toEqual({ pending: -1, processed: 1 });
   });
 });
 

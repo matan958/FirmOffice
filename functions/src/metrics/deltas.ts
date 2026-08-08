@@ -92,3 +92,25 @@ export function hasWork(change: Change): boolean {
     Object.keys(change.byChannel).length > 0
   );
 }
+
+/**
+ * The metrics document patch, as NESTED maps of plain numbers.
+ *
+ * Nesting is the whole point of this function existing. `set(ref, data, { merge: true })`
+ * treats a key containing a dot as a LITERAL field name — only `update()` interprets
+ * dots as field paths. Writing `{ 'counts.pending': increment(1) }` through set()
+ * therefore produces a top-level field actually called "counts.pending", and
+ * `metrics.counts` stays undefined forever. That shipped once and the badges silently
+ * read nothing; the shape is asserted in tests now.
+ *
+ * The caller maps these numbers to FieldValue.increment().
+ */
+export function metricsPatch(change: Change): {
+  counts?: Record<string, number>;
+  byChannel?: Record<string, number>;
+} {
+  const patch: { counts?: Record<string, number>; byChannel?: Record<string, number> } = {};
+  if (Object.keys(change.counts).length > 0) patch.counts = { ...change.counts };
+  if (Object.keys(change.byChannel).length > 0) patch.byChannel = { ...change.byChannel };
+  return patch;
+}

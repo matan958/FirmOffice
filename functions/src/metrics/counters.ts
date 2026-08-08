@@ -2,7 +2,7 @@ import { onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { logger } from 'firebase-functions';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db } from '../lib/firebase.js';
-import { computeChange, hasWork } from './deltas.js';
+import { computeChange, hasWork, metricsPatch } from './deltas.js';
 import { COLLECTIONS, METRICS_DOC_ID, SUBCOLLECTIONS } from '../shared.js';
 import type { DocumentDoc } from '../shared.js';
 
@@ -38,13 +38,16 @@ export const onDocumentChanged = onDocumentWritten(
     const change = computeChange(before, after);
     if (!hasWork(change)) return; // e.g. an updatedAt-only touch
 
+    // NESTED maps, never dotted keys. set(..., { merge: true }) treats a key containing
+    // a dot as a literal field name — only update() reads it as a path — so dotted keys
+    // here would create a field called "counts.pending" and leave counts undefined.
+    const patch = metricsPatch(change);
     const payload: Record<string, unknown> = { updatedAt: FieldValue.serverTimestamp() };
-    for (const [field, by] of Object.entries(change.counts)) {
-      payload[`counts.${field}`] = FieldValue.increment(by);
-    }
-    for (const [channel, by] of Object.entries(change.byChannel)) {
-      payload[`byChannel.${channel}`] = FieldValue.increment(by);
-    }
+    const toIncrements = (m: Record<string, number>) =>
+      Object.fromEntries(Object.entries(m).map(([k, v]) => [k, FieldValue.increment(v)]));
+
+    if (patch.counts) payload['counts'] = toIncrements(patch.counts);
+    if (patch.byChannel) payload['byChannel'] = toIncrements(patch.byChannel);
 
     const batch = db().batch();
 
@@ -67,7 +70,7 @@ export const onDocumentChanged = onDocumentWritten(
       },
     );
 
-    if (Object.keys(change.counts).length > 0 || Object.keys(change.byChannel).length > 0) {
+    if (patch.counts || patch.byChannel) {
       batch.set(db().collection(COLLECTIONS.metrics).doc(METRICS_DOC_ID), payload, {
         merge: true,
       });
