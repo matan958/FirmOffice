@@ -2,9 +2,10 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '@/lib/firebase';
-import { COLLECTIONS } from '@shared';
+import { COLLECTIONS, dropAddress } from '@shared';
 import type { ClientDoc, CreateClientRequest, CreateClientResponse } from '@shared';
 import { ErrorNote, Field, SubmitButton } from '@/features/auth/AuthCard';
+import { useIngestState } from '@/features/inbox/useIngestState';
 
 type Row = ClientDoc & { id: string };
 
@@ -23,6 +24,7 @@ const createClientFn = httpsCallable<CreateClientRequest, CreateClientResponse>(
 export default function ClientsPage() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
+  const mailbox = useIngestState()?.mailbox ?? null;
 
   useEffect(() => {
     const q = query(collection(db, COLLECTIONS.clients), orderBy('name'));
@@ -80,7 +82,9 @@ export default function ClientsPage() {
             {rows?.map((c) => (
               <tr key={c.id}>
                 <td className="px-4 py-2 font-medium">{c.name}</td>
-                <td className="px-4 py-2 font-mono text-xs">docs+{c.ingestAlias}@</td>
+                <td className="px-4 py-2">
+                  <DropAddress mailbox={mailbox} alias={c.ingestAlias} />
+                </td>
                 <td className="px-4 py-2 capitalize text-ink-600">{c.status}</td>
                 <td className="px-4 py-2 font-mono text-xs break-all text-ink-400">{c.id}</td>
               </tr>
@@ -89,6 +93,44 @@ export default function ClientsPage() {
         </table>
       </div>
     </main>
+  );
+}
+
+/**
+ * The per-client drop address, with one click to copy it.
+ *
+ * Copying matters more than it looks. This address is the top rung of the mapping
+ * ladder and the only one immune to a forged sender, but it earns nothing until a
+ * client is actually using it — and a hand-retyped `docs+acme7k2@` with one character
+ * wrong does not bounce. It silently lands in the plain mailbox and files as
+ * Unassigned, which reads as "the address doesn't work".
+ */
+function DropAddress({ mailbox, alias }: { mailbox: string | null; alias: string }) {
+  const [copied, setCopied] = useState(false);
+  const address = dropAddress(mailbox, alias);
+
+  if (!address) {
+    return (
+      <span className="text-xs text-ink-400" title={`Alias: ${alias}`}>
+        pending — mail ingestion not connected
+      </span>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => {
+        void navigator.clipboard.writeText(address).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        });
+      }}
+      className="group font-mono text-xs text-ink-600 underline-offset-2 hover:underline"
+      title="Copy"
+    >
+      {address}
+      <span className="ml-2 font-sans text-ink-400">{copied ? 'copied' : 'copy'}</span>
+    </button>
   );
 }
 
@@ -158,8 +200,8 @@ function NewClientForm() {
       {error && <ErrorNote message={error} />}
       {created && (
         <p className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-900">
-          Created. Drop address:{' '}
-          <code className="font-mono">docs+{created.ingestAlias}@</code>
+          Created. Drop address: <code className="font-mono">+{created.ingestAlias}</code>{' '}
+          — the full address is in the table below.
           {!created.emailIdentifierCreated && email && (
             <span className="mt-1 block text-xs">
               That email is already mapped to another client — mail from it will not

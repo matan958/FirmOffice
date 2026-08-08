@@ -9,6 +9,8 @@ import { ErrorNote } from '@/features/auth/AuthCard';
 import { COLLECTIONS, SUBCOLLECTIONS } from '@shared';
 import type { ClientDoc, DocumentDoc, PageDoc, WorkflowStatus } from '@shared';
 import PipelineChip from '@/features/inbox/PipelineChip';
+import SourceChip from '@/features/inbox/SourceChip';
+import AssignDialog from '@/features/inbox/AssignDialog';
 import { assignClient, retryOcrFn, setWorkflowStatus } from '@/features/inbox/actions';
 import { useDocumentPreview } from './useDocumentPreview';
 
@@ -39,6 +41,7 @@ export default function DocumentViewerPage() {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [filing, setFiling] = useState(false);
 
   const preview = useDocumentPreview(docId);
 
@@ -117,25 +120,37 @@ export default function DocumentViewerPage() {
           </Link>
           <h1 className="truncate text-sm font-semibold">{document.file.originalName}</h1>
           <PipelineChip doc={document} />
+          <SourceChip doc={document} />
 
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <select
-              value={document.clientId ?? ''}
-              disabled={busy}
-              onChange={(e) => {
-                const id = e.target.value;
-                const name = clients.find((c) => c.id === id)?.name ?? '';
-                if (id) void run(() => assignClient(document.id, id, name));
-              }}
-              className="rounded-md border border-ink-200 bg-white px-2 py-1 text-xs"
-            >
-              <option value="">Unassigned</option>
-              {clients.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+            {/* Unassigned documents go through the dialog rather than this select, so
+                filing one can also teach the ladder. Reassigning an already-filed
+                document is a correction, not a new rule, so it stays a plain select. */}
+            {document.clientId === null && session ? (
+              <button
+                onClick={() => setFiling(true)}
+                className="rounded-md border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900"
+              >
+                File…
+              </button>
+            ) : (
+              <select
+                value={document.clientId ?? ''}
+                disabled={busy || !session}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const name = clients.find((c) => c.id === id)?.name ?? '';
+                  if (id) void run(() => assignClient(document.id, id, name, session!.user.uid));
+                }}
+                className="rounded-md border border-ink-200 bg-white px-2 py-1 text-xs"
+              >
+                {clients.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            )}
 
             <select
               value={document.workflowStatus}
@@ -178,6 +193,14 @@ export default function DocumentViewerPage() {
           </p>
         )}
         {notice && <p className="mt-2 text-xs text-emerald-700">{notice}</p>}
+        {filing && session && (
+          <AssignDialog
+            doc={document}
+            clients={clients}
+            actorUid={session.user.uid}
+            onClose={() => setFiling(false)}
+          />
+        )}
         {actionError && (
           <div className="mt-2">
             <ErrorNote message={actionError} />

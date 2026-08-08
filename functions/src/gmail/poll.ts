@@ -224,6 +224,11 @@ export async function runPoll(): Promise<PollGmailResponse> {
       ensureLabel(GMAIL_ATTENTION_LABEL),
     ]);
 
+    // Published so the dashboard can print each client's drop address. Written every
+    // run rather than once, so re-pointing the poller at a different mailbox cannot
+    // leave the UI advertising addresses that go nowhere.
+    await STATE_REF().set({ mailbox }, { merge: true });
+
     const ids = await listMessageIds(QUERY, GMAIL_MAX_MESSAGES_PER_RUN);
     logger.info('gmail poll: starting', { mailbox, candidates: ids.length });
 

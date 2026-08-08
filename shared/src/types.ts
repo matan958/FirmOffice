@@ -410,6 +410,15 @@ export interface MetricsDoc {
  * a poller that silently stopped looks exactly like a quiet week.
  */
 export interface IngestStateDoc {
+  /**
+   * The address the stored refresh token actually belongs to, read back from Gmail
+   * on each run rather than configured.
+   *
+   * The dashboard needs it to show each client their drop address
+   * (`mailbox+{ingestAlias}@…`), and a value that drifted from the account the token
+   * was minted for would print addresses that silently go nowhere.
+   */
+  mailbox: string | null;
   lastPollAt: Timestampish | null;
   /** Last run that completed without throwing — the field the silent-failure alarm reads. */
   lastSuccessAt: Timestampish | null;

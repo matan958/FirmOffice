@@ -147,7 +147,11 @@ service cloud.firestore {
 
     // ── server-only operational collections ──────────────────────────────────
 
-    match /ingestState/{docId}       { allow read: if isAdmin(); allow write: if false; }
+    // Accountant-readable, not admin-only: it carries the ingest mailbox address the
+    // dashboard needs to show clients their per-client drop address, and the poller's
+    // last-success time, which is the one place "has ingestion silently stopped?" can
+    // be answered. Both are operational facts the people working the queue need.
+    match /ingestState/{docId}       { allow read: if isAccountant(); allow write: if false; }
     match /failedIngestions/{docId}  { allow read: if isAdmin(); allow write: if false; }
     match /processedMessages/{docId} { allow read, write: if false; }
 

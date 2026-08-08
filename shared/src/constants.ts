@@ -225,6 +225,24 @@ export function normalizeEmail(raw: string): string {
   return `${local}@${domain}`;
 }
 
+/**
+ * The address to print on a client's engagement letter.
+ *
+ * `firmoffice.docs@gmail.com` + `acme7k2` → `firmoffice.docs+acme7k2@gmail.com`.
+ *
+ * The mailbox is not hardcoded because it is read back from Gmail at poll time; a
+ * configured value that drifted from the account the refresh token belongs to would
+ * have the dashboard printing addresses that silently go nowhere. Returns null when
+ * the poller has never run, so the UI can say "not connected yet" instead of showing
+ * a half-built address that looks real.
+ */
+export function dropAddress(mailbox: string | null, ingestAlias: string): string | null {
+  if (!mailbox) return null;
+  const at = mailbox.lastIndexOf('@');
+  if (at <= 0) return null;
+  return `${mailbox.slice(0, at)}+${ingestAlias}${mailbox.slice(at)}`;
+}
+
 /** Local part of the per-client drop address, e.g. 'acme7k2' → docs+acme7k2@firm.com. */
 export function ingestAliasFrom(name: string, suffix: string): string {
   const slug = name

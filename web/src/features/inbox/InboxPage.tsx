@@ -7,7 +7,10 @@ import { ErrorNote } from '@/features/auth/AuthCard';
 import { COLLECTIONS } from '@shared';
 import type { ClientDoc, Timestampish, WorkflowStatus } from '@shared';
 import MetricsBar from './MetricsBar';
+import MailStatus from './MailStatus';
 import PipelineChip from './PipelineChip';
+import SourceChip from './SourceChip';
+import AssignDialog from './AssignDialog';
 import { useDocuments, type DocRow } from './useDocuments';
 import { setWorkflowStatus } from './actions';
 
@@ -77,6 +80,12 @@ export default function InboxPage() {
         />
       </div>
 
+      <div className="mt-4">
+        {/* The manual trigger is admin-only server-side, so only offer it to admins —
+            an accountant clicking it would get a bare permission-denied. */}
+        <MailStatus canPoll={session?.role === 'admin'} />
+      </div>
+
       {docs.status === 'error' && (
         <div className="mt-6">
           <ErrorNote message={docs.message} />
@@ -89,6 +98,7 @@ export default function InboxPage() {
             <tr>
               <th className="px-4 py-2 font-medium">Document</th>
               <th className="px-4 py-2 font-medium">Client</th>
+              <th className="px-4 py-2 font-medium">Source</th>
               <th className="px-4 py-2 font-medium">Received</th>
               <th className="px-4 py-2 font-medium">Pipeline</th>
               <th className="px-4 py-2 font-medium">Status</th>
@@ -97,21 +107,21 @@ export default function InboxPage() {
           <tbody className="divide-y divide-ink-200">
             {docs.status === 'loading' && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-ink-400">
+                <td colSpan={6} className="px-4 py-8 text-ink-400">
                   Loading…
                 </td>
               </tr>
             )}
             {docs.status === 'ready' && docs.rows.length === 0 && (
               <tr>
-                <td colSpan={5} className="px-4 py-8 text-ink-400">
+                <td colSpan={6} className="px-4 py-8 text-ink-400">
                   Nothing here. {status !== 'all' && 'Try a different status.'}
                 </td>
               </tr>
             )}
             {docs.status === 'ready' &&
               docs.rows.map((row) => (
-                <Row key={row.id} row={row} actorUid={session?.user.uid} />
+                <Row key={row.id} row={row} actorUid={session?.user.uid} clients={clients} />
               ))}
           </tbody>
         </table>
@@ -126,9 +136,18 @@ export default function InboxPage() {
   );
 }
 
-function Row({ row, actorUid }: { row: DocRow; actorUid: string | undefined }) {
+function Row({
+  row,
+  actorUid,
+  clients,
+}: {
+  row: DocRow;
+  actorUid: string | undefined;
+  clients: { id: string; name: string }[];
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [filing, setFiling] = useState(false);
 
   async function move(next: WorkflowStatus) {
     if (!actorUid) return;
@@ -164,7 +183,29 @@ function Row({ row, actorUid }: { row: DocRow; actorUid: string | undefined }) {
         )}
       </td>
       <td className="px-4 py-2 text-ink-600">
-        {row.clientNameCache ?? <span className="text-amber-700">unassigned</span>}
+        {row.clientNameCache ?? (
+          // The queue is only worth having if clearing it is one click from the list.
+          // Making an accountant open each document first is what turns Unassigned
+          // into a backlog nobody touches.
+          <button
+            onClick={() => setFiling(true)}
+            disabled={!actorUid}
+            className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 disabled:opacity-40"
+          >
+            File…
+          </button>
+        )}
+        {filing && actorUid && (
+          <AssignDialog
+            doc={row}
+            clients={clients}
+            actorUid={actorUid}
+            onClose={() => setFiling(false)}
+          />
+        )}
+      </td>
+      <td className="px-4 py-2">
+        <SourceChip doc={row} />
       </td>
       <td className="px-4 py-2 text-xs text-ink-600">{formatWhen(row.receivedAt)}</td>
       <td className="px-4 py-2">
