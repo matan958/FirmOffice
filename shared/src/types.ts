@@ -292,7 +292,21 @@ export type DocumentSource = GmailSource | WhatsAppSource | WebSource;
 export interface DocumentDoc {
   // ── ownership ──
   clientId: string | null;
-  clientMatch: ClientMatch | null;
+  /**
+   * OPTIONAL, and the `?` is load-bearing.
+   *
+   * A Client Portal upload is created by the browser under a security rule that
+   * allowlists an exact set of keys, and `clientMatch` is not one of them — a client
+   * must not be able to assert how they were matched. So the field is genuinely
+   * ABSENT on portal documents until the ingest trigger fills it in, and on every
+   * document created before that trigger did so.
+   *
+   * Declaring it `ClientMatch | null` was a lie the compiler believed: a `!== null`
+   * guard type-checked, passed for `undefined`, and crashed the whole Inbox on the
+   * first dereference. Optional is the honest type, and it makes tsc reject exactly
+   * that mistake.
+   */
+  clientMatch?: ClientMatch | null;
   /** Denormalized so the inbox list renders without an N+1 join on /clients. */
   clientNameCache: string | null;
   uploadedByUid: string | null;

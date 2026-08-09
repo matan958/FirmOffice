@@ -10,6 +10,7 @@ import { enqueueOcr } from '../ocr/enqueue.js';
 import {
   COLLECTIONS,
   DUPLICATE_WINDOW_DAYS,
+  MATCH_CONFIDENCE,
   MAX_FILE_BYTES,
   STORAGE_PREFIX,
 } from '../shared.js';
@@ -214,6 +215,18 @@ export const onDocumentUploaded = onObjectFinalized(
       const willOcr = classify(finalType) === 'ocr';
       const next: PipelineStatus = willOcr ? 'ocr_queued' : 'skipped_ocr';
 
+      // A portal upload IS a client match — the strongest kind. The client was signed
+      // in with a clientId claim that the rules verified against the document they
+      // wrote, so provenance is certain. It is recorded here rather than by the
+      // browser because the create rule allowlists exactly the keys a client may set,
+      // and "how I was matched" must not be one of them.
+      //
+      // Without this the field is simply absent on every portal document, which is a
+      // shape the readers then have to keep remembering to handle.
+      // Only when there is a client and nothing has recorded a match yet — a Gmail
+      // document arrives with its own, and must not have it overwritten.
+      const needsPortalMatch = current.clientId !== null && !current.clientMatch;
+
       // Dotted paths so the client-written file.originalName survives — a nested
       // object would replace the whole map. Not expressible in the model type, which
       // describes documents as they are read.
@@ -224,6 +237,17 @@ export const onDocumentUploaded = onObjectFinalized(
         'file.storagePath': storagePath,
         pipelineStatus: next,
         duplicateOf,
+        ...(needsPortalMatch
+          ? {
+              clientMatch: {
+                method: 'portal',
+                confidence: MATCH_CONFIDENCE['portal'] ?? 1,
+                matchedIdentifier: null,
+                suggestedClientId: null,
+                resolvedAt: FieldValue.serverTimestamp(),
+              },
+            }
+          : {}),
         updatedAt: FieldValue.serverTimestamp(),
       });
 

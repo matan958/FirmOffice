@@ -18,9 +18,12 @@ export default function SourceChip({ doc }: { doc: DocumentDoc }) {
 
   const label = doc.channel === 'gmail' ? 'Mail' : doc.channel === 'web' ? 'Portal' : 'WhatsApp';
 
+  // `!match` rather than `match !== null`: the field is absent, not null, on portal
+  // uploads. A document with no recorded match is not "uncertain" — nothing claimed
+  // anything about it — so it gets no warning either way.
   const uncertain =
     doc.clientId !== null &&
-    match !== null &&
+    !!match &&
     (match.confidence < TRUSTED_CONFIDENCE || match.authDowngraded === true);
 
   return (
