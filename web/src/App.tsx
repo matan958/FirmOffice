@@ -6,6 +6,7 @@ import { AuthProvider } from '@/features/auth/AuthProvider';
 import { RequireAuth, RequireRole, RoleLanding } from '@/features/auth/guards';
 import LoginPage from '@/features/auth/LoginPage';
 import SignupPage from '@/features/auth/SignupPage';
+import ForgotPasswordPage from '@/features/auth/ForgotPasswordPage';
 import PendingPage from '@/features/auth/PendingPage';
 import ClientsPage from '@/features/clients/ClientsPage';
 import UsersPage from '@/features/admin/UsersPage';
@@ -36,6 +37,7 @@ export default function App() {
         {/* Public */}
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
 
         {/* Signed in */}
         <Route element={<RequireAuth />}>

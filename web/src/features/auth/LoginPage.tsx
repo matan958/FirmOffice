@@ -63,15 +63,23 @@ export default function LoginPage() {
           disabled={busy}
           onChange={(e) => setEmail(e.target.value)}
         />
-        <Field
-          label="Password"
-          type="password"
-          autoComplete="current-password"
-          required
-          value={password}
-          disabled={busy}
-          onChange={(e) => setPassword(e.target.value)}
-        />
+        <div>
+          <Field
+            label="Password"
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            disabled={busy}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+          <Link
+            to="/forgot-password"
+            className="mt-1.5 inline-block text-xs text-ink-500 underline-offset-2 hover:text-brand-700 hover:underline"
+          >
+            Forgot your password?
+          </Link>
+        </div>
         {error && <ErrorNote message={error} />}
         <SubmitButton busy={busy}>Sign in</SubmitButton>
       </form>
