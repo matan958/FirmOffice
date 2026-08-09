@@ -126,6 +126,21 @@ export const SEARCH_STOPWORDS = new Set([
   'של', 'את', 'עם', 'על', 'לא', 'כל', 'זה', 'הוא', 'היא', 'אני', 'אנחנו',
 ]);
 
+/**
+ * Language hints passed to Vision on every request.
+ *
+ * DOCUMENT_TEXT_DETECTION auto-detects script, but detection is a guess made from the
+ * image, and on a creased thermal receipt it is a poor one. Hebrew is right-to-left
+ * with a small alphabet that Vision will otherwise sometimes read as Arabic or as
+ * Latin lookalikes, and the failure is not an error — it is plausible-looking text
+ * that is wrong, which is far worse for an accountant than no text at all.
+ *
+ * Hints are a bias, not a filter: a document in a language not listed here is still
+ * read. Keep the list SHORT for that reason — Google's guidance is that a long hint
+ * list degrades accuracy rather than covering more ground.
+ */
+export const VISION_LANGUAGE_HINTS = ['he', 'en'] as const;
+
 /** Below this average Vision confidence, flag the document for a human look. */
 export const LOW_CONFIDENCE_THRESHOLD = 0.6;
 

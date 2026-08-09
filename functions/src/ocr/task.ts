@@ -106,7 +106,7 @@ export async function runOcr(
         // Digital-native PDF: the text was already there. No Vision call, no charge.
         extraction = probe.extraction;
       } else if (probe.pageCount <= VISION_SYNC_PAGE_LIMIT) {
-        extraction = await engine.pdfSync(gcsUri);
+        extraction = await engine.pdfSync(gcsUri, probe.pageCount);
       } else {
         extraction = await engine.pdfAsync(gcsUri, docId);
       }
