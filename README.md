@@ -6,29 +6,33 @@ preview side-by-side with OCR-extracted text.
 
 Full architecture, schema rationale, and edge-case handling: **[`docs/PLAN.md`](docs/PLAN.md)**.
 
-**Status: M0–M4 built. M2's core is the only part verified against the live project.**
-A document arrives — dropped in the Client Portal, or mailed to the firm's ingest
-address — and is validated, hashed, de-duplicated, matched to a client, OCR'd and
+**Live at <https://firmoffice-9b247.web.app>** — deployed 2026-08-09. A document
+arrives in the Client Portal, and is validated, hashed, de-duplicated, OCR'd and
 indexed, with live counters and an audit trail. Accountants work it from an Inbox with
 the original and the extracted text side by side.
+
+All 11 functions are deployed to `us-east1`. Bucket CORS, the IAM URL-signing grant
+and the Vision API were re-verified against the project at deploy time.
 
 Proven end to end on `firmoffice-9b247` on 2026-08-08: magic-byte sniffing, SHA-256
 duplicate detection, the free PDF text-layer path, search tokens, the pages
 subcollection, Cloud Tasks dispatch with retry, and nested metrics counters.
 
-**Not yet exercised on the real project.** Everything below is written and unit-tested
-but has never run against Google's own services, which is a different claim:
+**Still unproven against Google's own services** — written and unit-tested is a
+different claim from "has run once":
 
-1. **Cloud Vision.** Every test document has been a digital-native PDF, which the
-   text-layer path handles without calling Vision at all. The scanned-image path is
-   tested against a fake engine only. Upload a phone photo of a receipt to close this.
-2. **Signed-URL previews** (`getDocumentUrl`). The IAM signing grant and bucket CORS
-   are both in place and verified, but no preview has actually been fetched. These are
-   precisely the two settings whose absence produces errors that name neither IAM nor
-   CORS, so "configured" and "working" are worth distinguishing.
-3. **The whole Gmail channel** (M4). The mapping ladder and attachment filtering are
-   covered by 50 unit tests against synthetic payloads, but no real message has been
-   read. See [Connecting Gmail](#connecting-gmail-m4).
+1. **Cloud Vision.** Every test document so far has been a digital-native PDF, which
+   the text-layer path handles without calling Vision at all, so the scanned-image
+   path has never made a real request. Upload a phone photo of a receipt to close
+   this. Two bugs on that path were found by reading it (see `ocr/vision.ts`) and
+   there may be more.
+2. **Signed-URL previews** (`getDocumentUrl`) — deployed, grant and CORS verified, but
+   no preview has been fetched. These are precisely the settings whose absence
+   produces errors naming neither IAM nor CORS.
+3. **The whole Gmail channel** (M4) is built and unit-tested but **not deployed**: its
+   functions declare Secret Manager secrets that do not exist yet, and a deploy fails
+   outright on a declared secret with no version. See
+   [Connecting Gmail](#connecting-gmail-m4).
 
 ---
 
@@ -368,8 +372,8 @@ Decisions the plan deliberately left to you, with the milestone that forces them
       learning loop are deferred — the latter needs a sender address, which only
       exists once Gmail ingestion lands in M4.)*
 - [x] **M4** Gmail ingestion — poller, mapping ladder, learning loop
-      *(built and unit-tested against synthetic payloads; no real message has been
-      read yet. Needs the console steps in [Connecting Gmail](#connecting-gmail-m4)
-      before it can run at all.)*
+      *(built and unit-tested against synthetic payloads; **not deployed**. The
+      exports are commented out in `functions/src/index.ts` because they declare
+      secrets that do not exist yet — see [Connecting Gmail](#connecting-gmail-m4).)*
 - [ ] **M5** WhatsApp ingestion
 - [ ] **M6** Hardening — janitor, alerting, structured extraction, search, retention
