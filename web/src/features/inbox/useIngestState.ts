@@ -19,20 +19,12 @@ export function useIngestState(): (IngestStateDoc & { exists: boolean }) | null 
   useEffect(() => {
     return onSnapshot(
       doc(db, COLLECTIONS.ingestState, 'gmail'),
-      (snap) =>
-        setState(
-          snap.exists()
-            ? { exists: true, ...(snap.data() as IngestStateDoc) }
-            : {
-                exists: false,
-                mailbox: null,
-                lastPollAt: null,
-                lastSuccessAt: null,
-                lastError: null,
-                consecutiveFailures: 0,
-                totalIngested: 0,
-              },
-        ),
+      // Null while the document does not exist, which is the state before Gmail has
+      // ever been connected. Callers hide their UI entirely rather than showing an
+      // amber "never completed a run" warning about a channel nobody has turned on —
+      // a permanent false alarm is worse than no indicator, because it teaches people
+      // to ignore the one place a real outage would appear.
+      (snap) => setState(snap.exists() ? { exists: true, ...(snap.data() as IngestStateDoc) } : null),
       // A client role cannot read this collection; failing quietly is correct.
       () => setState(null),
     );

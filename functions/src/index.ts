@@ -60,8 +60,20 @@ export { retryOcr } from './ocr/retry.js';
 // M4 — Gmail ingestion
 // ─────────────────────────────────────────────────────────────────────────────
 
-export { pollGmail, pollGmailNow } from './gmail/poll.js';
 export { linkIdentifier } from './admin/linkIdentifier.js';
+
+/*
+ * The Gmail poller is built and unit-tested but deliberately NOT exported yet.
+ *
+ * Both functions declare `secrets: [GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET,
+ * GMAIL_REFRESH_TOKEN]`, and a deploy fails outright if a declared secret has no
+ * version in Secret Manager. Exporting them before the OAuth setup is done would
+ * therefore block the deploy of everything else in this file.
+ *
+ * To turn Gmail on: follow "Connecting Gmail" in the README, then uncomment.
+ *
+ *   export { pollGmail, pollGmailNow } from './gmail/poll.js';
+ */
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Milestone map — each export below arrives with its milestone.

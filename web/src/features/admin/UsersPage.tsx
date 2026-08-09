@@ -49,7 +49,7 @@ export default function UsersPage() {
   const pending = users?.filter((u) => u.role === 'client' && !u.clientId) ?? [];
 
   return (
-    <main className="mx-auto max-w-4xl p-8">
+    <main className="mx-auto max-w-4xl px-6 py-8">
       <h1 className="text-2xl font-semibold tracking-tight">Users</h1>
       <p className="mt-1 text-sm text-ink-600">
         Roles live in the ID token. Changing one revokes the user&apos;s refresh tokens,
@@ -63,20 +63,20 @@ export default function UsersPage() {
       )}
 
       {pending.length > 0 && (
-        <p className="mt-6 rounded-md bg-amber-50 p-3 text-sm text-amber-900">
+        <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
           {pending.length} account{pending.length === 1 ? '' : 's'} awaiting activation.
           {clients.length === 0 && ' Create a client first — there is nothing to link to yet.'}
         </p>
       )}
 
-      <div className="mt-6 overflow-x-auto rounded-lg border border-ink-200">
+      <div className="card mt-6 overflow-x-auto">
         <table className="w-full text-left text-sm">
-          <thead className="border-b border-ink-200 text-xs uppercase text-ink-600">
+          <thead className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
             <tr>
-              <th className="px-4 py-2 font-medium">Email</th>
-              <th className="px-4 py-2 font-medium">Role</th>
-              <th className="px-4 py-2 font-medium">Linked client</th>
-              <th className="px-4 py-2 font-medium">Actions</th>
+              <th className="px-4 py-2.5 font-medium">Email</th>
+              <th className="px-4 py-2.5 font-medium">Role</th>
+              <th className="px-4 py-2.5 font-medium">Linked client</th>
+              <th className="px-4 py-2.5 font-medium">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-ink-200">

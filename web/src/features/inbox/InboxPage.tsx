@@ -3,7 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useSession } from '@/features/auth/AuthProvider';
-import { ErrorNote } from '@/features/auth/AuthCard';
+import { ErrorNote, Spinner } from '@/features/auth/AuthCard';
 import { COLLECTIONS } from '@shared';
 import type { ClientDoc, Timestampish, WorkflowStatus } from '@shared';
 import MetricsBar from './MetricsBar';
@@ -48,9 +48,15 @@ export default function InboxPage() {
   };
 
   return (
-    <main className="mx-auto max-w-6xl p-8">
-      <div className="flex items-baseline justify-between gap-4">
-        <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
+    <main className="mx-auto max-w-7xl px-6 py-8">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Inbox</h1>
+          <p className="mt-1 text-sm text-ink-600">
+            Everything clients have sent, newest first.
+          </p>
+        </div>
+
         <label className="flex items-center gap-2 text-sm text-ink-600">
           Client
           <select
@@ -60,10 +66,11 @@ export default function InboxPage() {
               if (v === '__unassigned') patch({ unassigned: '1', client: null });
               else patch({ unassigned: null, client: v === 'all' ? null : v });
             }}
-            className="rounded-md border border-ink-200 bg-white px-2 py-1 text-sm"
+            className="rounded-lg border border-ink-200 bg-white px-2.5 py-1.5 text-sm shadow-card
+                       outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/25"
           >
             <option value="all">All clients</option>
-            <option value="__unassigned">Unassigned</option>
+            <option value="__unassigned">Unassigned only</option>
             {clients.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
@@ -77,10 +84,12 @@ export default function InboxPage() {
         <MetricsBar
           active={status}
           onSelect={(s) => patch({ status: s === 'all' ? null : s })}
+          onShowUnassigned={() => patch({ unassigned: '1', client: null })}
         />
       </div>
 
-      <div className="mt-4">
+      {/* Hidden entirely until Gmail is connected — see useIngestState. */}
+      <div className="mt-4 empty:mt-0">
         {/* The manual trigger is admin-only server-side, so only offer it to admins —
             an accountant clicking it would get a bare permission-denied. */}
         <MailStatus canPoll={session?.role === 'admin'} />
@@ -92,39 +101,48 @@ export default function InboxPage() {
         </div>
       )}
 
-      <div className="mt-6 overflow-x-auto rounded-lg border border-ink-200">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-ink-200 text-xs uppercase text-ink-600">
-            <tr>
-              <th className="px-4 py-2 font-medium">Document</th>
-              <th className="px-4 py-2 font-medium">Client</th>
-              <th className="px-4 py-2 font-medium">Source</th>
-              <th className="px-4 py-2 font-medium">Received</th>
-              <th className="px-4 py-2 font-medium">Pipeline</th>
-              <th className="px-4 py-2 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-ink-200">
-            {docs.status === 'loading' && (
+      <div className="card mt-6 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-ink-400">
-                  Loading…
-                </td>
+                <th className="px-4 py-2.5 font-medium">Document</th>
+                <th className="px-4 py-2.5 font-medium">Client</th>
+                <th className="px-4 py-2.5 font-medium">Source</th>
+                <th className="px-4 py-2.5 font-medium">Received</th>
+                <th className="px-4 py-2.5 font-medium">Pipeline</th>
+                <th className="px-4 py-2.5 font-medium">Status</th>
               </tr>
-            )}
-            {docs.status === 'ready' && docs.rows.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-8 text-ink-400">
-                  Nothing here. {status !== 'all' && 'Try a different status.'}
-                </td>
-              </tr>
-            )}
-            {docs.status === 'ready' &&
-              docs.rows.map((row) => (
-                <Row key={row.id} row={row} actorUid={session?.user.uid} clients={clients} />
-              ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-ink-200">
+              {docs.status === 'loading' && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-12 text-center text-ink-400">
+                    <span className="inline-flex items-center gap-2">
+                      <Spinner /> Loading…
+                    </span>
+                  </td>
+                </tr>
+              )}
+              {docs.status === 'ready' && docs.rows.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-12 text-center">
+                    <p className="text-sm text-ink-600">Nothing here.</p>
+                    <p className="mt-1 text-xs text-ink-400">
+                      {status !== 'all' || clientId !== 'all' || unassignedOnly
+                        ? 'Try widening the filters above.'
+                        : 'Documents appear the moment a client uploads one.'}
+                    </p>
+                  </td>
+                </tr>
+              )}
+              {docs.status === 'ready' &&
+                docs.rows.map((row) => (
+                  <Row key={row.id} row={row} actorUid={session?.user.uid} clients={clients} />
+                ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {docs.status === 'ready' && docs.atLimit && (
@@ -163,26 +181,30 @@ function Row({
   }
 
   return (
-    <tr className={row.duplicateOf ? 'opacity-60' : undefined}>
-      <td className="px-4 py-2">
+    <tr className={`row-hover ${row.duplicateOf ? 'opacity-55' : ''}`}>
+      <td className="max-w-sm px-4 py-3">
         <Link
           to={`/inbox/${row.id}`}
-          className="font-medium text-brand-600 underline-offset-2 hover:underline"
+          className="font-medium text-brand-700 underline-offset-2 hover:underline"
         >
           {row.file.originalName}
         </Link>
         {row.duplicateOf && (
-          <span className="ml-2 text-xs text-ink-400" title={`Same bytes as ${row.duplicateOf}`}>
+          <span
+            className="ml-2 rounded bg-ink-100 px-1.5 py-0.5 text-xs text-ink-500"
+            title={`Identical bytes to document ${row.duplicateOf}`}
+          >
             duplicate
           </span>
         )}
         {row.ocr?.preview && (
-          <div className="mt-0.5 line-clamp-1 max-w-md text-xs text-ink-400">
+          <div className="mt-0.5 truncate text-xs text-ink-400">
             {row.ocr.preview.replace(/\s+/g, ' ').slice(0, 120)}
           </div>
         )}
       </td>
-      <td className="px-4 py-2 text-ink-600">
+
+      <td className="px-4 py-3 text-ink-600">
         {row.clientNameCache ?? (
           // The queue is only worth having if clearing it is one click from the list.
           // Making an accountant open each document first is what turns Unassigned
@@ -190,7 +212,8 @@ function Row({
           <button
             onClick={() => setFiling(true)}
             disabled={!actorUid}
-            className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900 disabled:opacity-40"
+            className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 text-xs font-medium
+                       text-amber-900 transition-colors hover:bg-amber-100 disabled:opacity-40"
           >
             File…
           </button>
@@ -204,19 +227,23 @@ function Row({
           />
         )}
       </td>
-      <td className="px-4 py-2">
+
+      <td className="px-4 py-3">
         <SourceChip doc={row} />
       </td>
-      <td className="px-4 py-2 text-xs text-ink-600">{formatWhen(row.receivedAt)}</td>
-      <td className="px-4 py-2">
+      <td className="px-4 py-3 whitespace-nowrap text-xs text-ink-500">
+        {formatWhen(row.receivedAt)}
+      </td>
+      <td className="px-4 py-3">
         <PipelineChip doc={row} />
       </td>
-      <td className="px-4 py-2">
+      <td className="px-4 py-3">
         <select
           value={row.workflowStatus}
           disabled={busy || !actorUid}
           onChange={(e) => void move(e.target.value as WorkflowStatus)}
-          className="rounded-md border border-ink-200 bg-white px-2 py-1 text-xs"
+          className="rounded-lg border border-ink-200 bg-white px-2 py-1 text-xs outline-none
+                     focus:border-brand-500 focus:ring-2 focus:ring-brand-500/25 disabled:opacity-60"
         >
           <option value="pending">Pending</option>
           <option value="in_progress">In progress</option>

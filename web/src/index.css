@@ -1,16 +1,54 @@
 @import 'tailwindcss';
 
+/**
+ * FirmOffice design tokens.
+ *
+ * ── Why there is no dark mode ──
+ * There was a `prefers-color-scheme: dark` block that flipped only the body
+ * background and text. Every surface in the app — cards, tables, the viewer, every
+ * form control — is explicitly `bg-white` with light borders, so that block produced
+ * a dark page carrying light panels with light-on-light text in the gaps: worse than
+ * either theme on its own, and only on the machines of people who happen to prefer
+ * dark. A single deliberate light theme is the honest choice until a real dark
+ * palette is built for every surface.
+ *
+ * The scale is a warm-leaning neutral (`ink`) plus one accent (`brand`). Deliberately
+ * one accent: colour carries meaning here — amber means "a human should look at this",
+ * red means "this failed", emerald means "done" — and a second decorative accent would
+ * dilute all three.
+ */
+
 @theme {
+  /* Neutrals. A hint of blue in the hue keeps greys from going muddy against the accent. */
   --color-ink-50: oklch(0.985 0.002 250);
-  --color-ink-100: oklch(0.96 0.004 250);
-  --color-ink-200: oklch(0.91 0.006 250);
-  --color-ink-400: oklch(0.66 0.012 250);
-  --color-ink-600: oklch(0.47 0.016 250);
+  --color-ink-100: oklch(0.965 0.004 250);
+  --color-ink-200: oklch(0.925 0.006 250);
+  --color-ink-300: oklch(0.86 0.008 250);
+  --color-ink-400: oklch(0.7 0.012 250);
+  --color-ink-500: oklch(0.58 0.014 250);
+  --color-ink-600: oklch(0.48 0.016 250);
+  --color-ink-700: oklch(0.38 0.018 250);
   --color-ink-800: oklch(0.28 0.018 250);
   --color-ink-900: oklch(0.19 0.018 250);
 
+  /* Accent. brand-50/100 back the tinted panels; 600 is the interactive default. */
+  --color-brand-50: oklch(0.97 0.018 250);
+  --color-brand-100: oklch(0.935 0.038 250);
+  --color-brand-200: oklch(0.88 0.065 250);
+  --color-brand-400: oklch(0.68 0.13 250);
   --color-brand-500: oklch(0.58 0.16 250);
   --color-brand-600: oklch(0.5 0.17 250);
+  --color-brand-700: oklch(0.42 0.15 250);
+  --color-brand-900: oklch(0.28 0.09 250);
+
+  --font-sans:
+    ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
+    Arial, 'Noto Sans Hebrew', sans-serif;
+
+  /* Soft, low-contrast elevation. A CPA tool should read as paper, not as glass. */
+  --shadow-card: 0 1px 2px oklch(0.19 0.018 250 / 0.05);
+  --shadow-raised: 0 1px 3px oklch(0.19 0.018 250 / 0.08), 0 4px 12px oklch(0.19 0.018 250 / 0.06);
+  --shadow-overlay: 0 12px 40px oklch(0.19 0.018 250 / 0.22);
 }
 
 html,
@@ -20,11 +58,21 @@ body,
 }
 
 body {
-  @apply bg-ink-50 text-ink-900 antialiased;
+  @apply bg-ink-100 font-sans text-ink-900 antialiased;
 }
 
-@media (prefers-color-scheme: dark) {
-  body {
-    @apply bg-ink-900 text-ink-100;
-  }
+/* A visible, consistent focus ring everywhere. Keyboard users work these queues too,
+   and the browser default disappears entirely against the accent buttons. */
+:focus-visible {
+  @apply outline-2 outline-offset-2 outline-brand-500;
+}
+
+@utility card {
+  @apply rounded-xl border border-ink-200 bg-white shadow-card;
+}
+
+/* Table rows only ever highlight on hover — no zebra striping. Striping competes with
+   the amber and red row states that actually mean something. */
+@utility row-hover {
+  @apply transition-colors hover:bg-ink-50;
 }

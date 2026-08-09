@@ -39,7 +39,7 @@ export default function ClientsPage() {
   }, []);
 
   return (
-    <main className="mx-auto max-w-4xl p-8">
+    <main className="mx-auto max-w-4xl px-6 py-8">
       <h1 className="text-2xl font-semibold tracking-tight">Clients</h1>
       <p className="mt-1 text-sm text-ink-600">
         Each client gets a permanent drop address. Give it to them — mail sent there
@@ -54,43 +54,49 @@ export default function ClientsPage() {
         </div>
       )}
 
-      <div className="mt-8 overflow-x-auto rounded-lg border border-ink-200">
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-ink-200 text-xs uppercase text-ink-600">
-            <tr>
-              <th className="px-4 py-2 font-medium">Name</th>
-              <th className="px-4 py-2 font-medium">Drop address</th>
-              <th className="px-4 py-2 font-medium">Status</th>
-              <th className="px-4 py-2 font-medium">Client ID</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-ink-200">
-            {rows === null && (
+      <div className="card mt-8 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-ink-400">
-                  Loading…
-                </td>
+                <th className="px-4 py-2.5 font-medium">Name</th>
+                <th className="px-4 py-2.5 font-medium">Drop address</th>
+                <th className="px-4 py-2.5 font-medium">Status</th>
+                <th className="px-4 py-2.5 font-medium">Client ID</th>
               </tr>
-            )}
-            {rows?.length === 0 && (
-              <tr>
-                <td colSpan={4} className="px-4 py-6 text-ink-400">
-                  No clients yet — add the first one above.
-                </td>
-              </tr>
-            )}
-            {rows?.map((c) => (
-              <tr key={c.id}>
-                <td className="px-4 py-2 font-medium">{c.name}</td>
-                <td className="px-4 py-2">
-                  <DropAddress mailbox={mailbox} alias={c.ingestAlias} />
-                </td>
-                <td className="px-4 py-2 capitalize text-ink-600">{c.status}</td>
-                <td className="px-4 py-2 font-mono text-xs break-all text-ink-400">{c.id}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-ink-200">
+              {rows === null && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-10 text-center text-ink-400">
+                    Loading…
+                  </td>
+                </tr>
+              )}
+              {rows?.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="px-4 py-10 text-center">
+                    <p className="text-sm text-ink-600">No clients yet.</p>
+                    <p className="mt-1 text-xs text-ink-400">
+                      Add the first one above — a client is what documents get filed
+                      against.
+                    </p>
+                  </td>
+                </tr>
+              )}
+              {rows?.map((c) => (
+                <tr key={c.id} className="row-hover">
+                  <td className="px-4 py-3 font-medium">{c.name}</td>
+                  <td className="px-4 py-3">
+                    <DropAddress mailbox={mailbox} alias={c.ingestAlias} />
+                  </td>
+                  <td className="px-4 py-3 capitalize text-ink-600">{c.status}</td>
+                  <td className="px-4 py-3 font-mono text-xs break-all text-ink-400">{c.id}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
     </main>
   );
@@ -168,15 +174,19 @@ function NewClientForm() {
     return (
       <button
         onClick={() => setOpen(true)}
-        className="mt-6 rounded-md bg-brand-600 px-3 py-2 text-sm font-medium text-white hover:bg-brand-500"
+        className="mt-6 inline-flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-sm
+                   font-medium text-white shadow-card transition-colors hover:bg-brand-500"
       >
+        <span aria-hidden className="text-base leading-none">
+          +
+        </span>
         New client
       </button>
     );
   }
 
   return (
-    <form onSubmit={onSubmit} className="mt-6 max-w-sm space-y-4 rounded-lg border border-ink-200 p-4">
+    <form onSubmit={onSubmit} className="card mt-6 max-w-sm space-y-4 p-5">
       <Field
         label="Client name"
         required
@@ -199,7 +209,7 @@ function NewClientForm() {
       />
       {error && <ErrorNote message={error} />}
       {created && (
-        <p className="rounded-md bg-emerald-50 p-3 text-sm text-emerald-900">
+        <p className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
           Created. Drop address: <code className="font-mono">+{created.ingestAlias}</code>{' '}
           — the full address is in the table below.
           {!created.emailIdentifierCreated && email && (

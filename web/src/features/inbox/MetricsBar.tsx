@@ -25,9 +25,11 @@ const STATUS_LABEL: Record<WorkflowStatus, string> = {
 export interface MetricsBarProps {
   active: WorkflowStatus | 'all';
   onSelect(next: WorkflowStatus | 'all'): void;
+  /** Jumps to the Unassigned queue. The count is useless if reaching it is a hunt. */
+  onShowUnassigned(): void;
 }
 
-export default function MetricsBar({ active, onSelect }: MetricsBarProps) {
+export default function MetricsBar({ active, onSelect, onShowUnassigned }: MetricsBarProps) {
   const [metrics, setMetrics] = useState<MetricsDoc | null>(null);
   const [missing, setMissing] = useState(false);
 
@@ -58,15 +60,22 @@ export default function MetricsBar({ active, onSelect }: MetricsBarProps) {
         />
       ))}
 
-      <div className="ml-auto flex items-center gap-3 text-xs text-ink-600">
+      <div className="ml-auto flex items-center gap-2 text-xs">
         {counts && counts.unassigned > 0 && (
-          <span className="rounded-md bg-amber-50 px-2 py-1 text-amber-900">
+          <button
+            onClick={onShowUnassigned}
+            className="rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1.5 font-medium
+                       text-amber-900 transition-colors hover:bg-amber-100"
+          >
             {counts.unassigned} unassigned
-          </span>
+          </button>
         )}
         {counts && counts.ocr_failed > 0 && (
-          <span className="rounded-md bg-red-50 px-2 py-1 text-red-900">
-            {counts.ocr_failed} OCR failed
+          <span
+            className="rounded-lg border border-red-200 bg-red-50 px-2.5 py-1.5 font-medium text-red-800"
+            title="Documents whose text could not be read. They are still in the queue — open one and use Retry OCR."
+          >
+            {counts.ocr_failed} unreadable
           </span>
         )}
         {missing && (
@@ -95,14 +104,19 @@ function Badge({
       onClick={onClick}
       aria-pressed={selected}
       className={[
-        'rounded-md border px-3 py-1.5 text-sm transition-colors',
+        'rounded-lg border px-3 py-1.5 text-sm transition-colors',
         selected
-          ? 'border-brand-600 bg-brand-600 text-white'
-          : 'border-ink-200 text-ink-600 hover:bg-ink-100',
+          ? 'border-brand-600 bg-brand-600 text-white shadow-card'
+          : 'border-ink-200 bg-white text-ink-600 shadow-card hover:border-ink-300 hover:text-ink-900',
       ].join(' ')}
     >
       {label}
-      <span className={selected ? 'ml-2 opacity-90' : 'ml-2 text-ink-400'}>
+      <span
+        className={[
+          'ml-2 tabular-nums',
+          selected ? 'opacity-85' : 'text-ink-400',
+        ].join(' ')}
+      >
         {count ?? '·'}
       </span>
     </button>
