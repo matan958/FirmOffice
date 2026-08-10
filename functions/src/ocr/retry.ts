@@ -49,14 +49,41 @@ export const retryOcr = onCall<RetryOcrRequest, Promise<RetryOcrResponse>>(async
   }
 
   // Clear the previous failure before re-queuing, so a stale error is not left sitting
-  // on a document that is now running again.
+  // on a document that is now running again. The status has to move BEFORE the
+  // enqueue, because the task handler's idempotency guard reads it — a task that ran
+  // first would see `ocr_done` and skip.
   await docRef.update({
     pipelineStatus: 'ocr_queued',
     error: null,
     updatedAt: FieldValue.serverTimestamp(),
   });
 
-  await enqueueOcr(docId);
+  try {
+    await enqueueOcr(docId);
+  } catch (err: unknown) {
+    // Put the document back where it was and record why. Without this, a failed
+    // enqueue leaves it sitting in `ocr_queued` for ever — visibly "Queued", with no
+    // error on it, and no worker that will ever pick it up. That is exactly what
+    // happened when this function's enqueue was broken: the callable returned
+    // INTERNAL to the browser and the document silently became unrecoverable through
+    // the UI, because the next retry would do the same thing again.
+    logger.error('retryOcr: enqueue failed', { docId, err: String(err) });
+    await docRef
+      .update({
+        pipelineStatus: document.pipelineStatus,
+        error: {
+          code: 'INTERNAL',
+          message: `Could not queue OCR: ${String(err)}`,
+          stage: 'ocr',
+          attempts: (document.error?.attempts ?? 0) + 1,
+          lastAttemptAt: FieldValue.serverTimestamp(),
+        },
+        updatedAt: FieldValue.serverTimestamp(),
+      })
+      .catch(() => undefined);
+
+    throw new HttpsError('internal', 'Could not queue this document for OCR. Try again.');
+  }
 
   logger.info('retryOcr', { actor: caller.uid, docId, previous: document.pipelineStatus });
 

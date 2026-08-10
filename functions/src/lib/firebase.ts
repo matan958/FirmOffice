@@ -14,12 +14,24 @@ import { getAuth, type Auth } from 'firebase-admin/auth';
 
 let app: App | undefined;
 
-function getApp(): App {
+/**
+ * The one App every accessor here shares.
+ *
+ * Exported because callers must pass it EXPLICITLY to any Admin SDK entry point.
+ * `getFunctions()` with no argument resolves the global default app instead, and in
+ * the deployed callable runtime that lookup threw "The default Firebase app does not
+ * exist" even though this module had already created one — which broke Retry OCR
+ * completely while the identical call from a Storage trigger worked. Passing the app
+ * removes the whole class of problem: there is no registry to disagree with.
+ */
+export function adminApp(): App {
   if (!app) {
     app = getApps().length ? getApps()[0]! : initializeApp();
   }
   return app;
 }
+
+const getApp = adminApp;
 
 let firestore: Firestore | undefined;
 

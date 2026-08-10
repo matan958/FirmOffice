@@ -1,6 +1,6 @@
 import { getFunctions } from 'firebase-admin/functions';
 import { logger } from 'firebase-functions';
-import { isEmulated } from '../lib/firebase.js';
+import { adminApp, isEmulated } from '../lib/firebase.js';
 import { runOcr } from './task.js';
 import { FUNCTIONS_REGION } from '../shared.js';
 import type { OcrTaskPayload } from './task.js';
@@ -35,6 +35,13 @@ export async function enqueueOcr(docId: string): Promise<void> {
   }
 
   const payload: OcrTaskPayload = { docId };
-  await getFunctions().taskQueue<OcrTaskPayload>(OCR_QUEUE).enqueue(payload);
-  logger.debug('ocr enqueued', { docId });
+
+  // The app is passed EXPLICITLY. The bare `getFunctions()` resolves the global
+  // default app, and in the deployed callable runtime that threw "The default Firebase
+  // app does not exist" — while the identical call from the Storage trigger, in the
+  // same codebase and the same process model, succeeded. Retry OCR was therefore
+  // broken from the day it shipped: it moved the document to `ocr_queued`, failed to
+  // enqueue, and returned INTERNAL, leaving the document permanently queued.
+  await getFunctions(adminApp()).taskQueue<OcrTaskPayload>(OCR_QUEUE).enqueue(payload);
+  logger.info('ocr enqueued', { docId, queue: OCR_QUEUE });
 }
