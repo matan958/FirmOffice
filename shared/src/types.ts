@@ -239,8 +239,17 @@ export interface ExtractedFields {
   /** ISO yyyy-mm-dd. Stored normalized; rendered in the firm's format. */
   issueDate?: string | null;
   vendorName?: string | null;
-  /** Digits only. */
+  /** Digits only, nine of them — normalized by toTaxId, which pads a dropped zero. */
   vendorTaxId?: string | null;
+  /**
+   * The OTHER party: whoever the document is addressed to.
+   *
+   * Not shown as a row — see COUNTERPARTY_FIELDS. These exist so that direction can be
+   * decided by which side the client's ח.פ. sits on, and they are null on a retail
+   * receipt that names no customer, which is itself the evidence for rung `noRecipient`.
+   */
+  recipientName?: string | null;
+  recipientTaxId?: string | null;
   netAmount?: number | null;
   vatAmount?: number | null;
   totalAmount?: number | null;
@@ -268,6 +277,60 @@ export interface ExtractionMeta {
   correctedFields: string[];
   /** Set when extraction was attempted and failed; null on success. */
   error: string | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Income vs expense
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Which side of the transaction the CLIENT is on.
+ *
+ * `neither` is not a hedge — it is the correct answer for a bank statement, a delivery
+ * note, or a חשבון עסקה, none of which are bookkeeping entries. Without it the system
+ * would be forced to call a proforma income or expense, and a proforma booked as a real
+ * invoice is a filing error rather than a mislabelled row.
+ *
+ * `unknown` means the ladder ran and could not decide. Recorded rather than left absent,
+ * for the same reason ClientMatchMethod has a 'none': "nobody has looked at this yet"
+ * and "we looked and could not tell" need different handling by a human.
+ */
+export type DocDirection = 'income' | 'expense' | 'neither' | 'unknown';
+
+/** Which rung of the ladder produced the answer. Named, so the UI can explain itself. */
+export type ClassificationRule =
+  | 'nonTaxDocument'
+  | 'ambiguous'
+  | 'issuerTaxId'
+  | 'recipientTaxId'
+  | 'issuerName'
+  | 'recipientName'
+  | 'noRecipient'
+  | 'neitherParty'
+  | 'unverifiedRecipient'
+  | 'clientTaxIdMissing'
+  | 'insufficient'
+  | 'manual';
+
+/**
+ * Why a document is income or expense.
+ *
+ * Deliberately shaped like ClientMatch: a decision, a confidence, the rule that fired,
+ * and who resolved it if a human did. This is not part of `extracted` because no model
+ * read the word "expense" off any page — direction is DERIVED from the document plus
+ * the client record. Keeping it separate is also what makes it free to recompute when a
+ * client's ח.פ. is filled in later, with no second call to Gemini.
+ */
+export interface Classification {
+  direction: DocDirection;
+  confidence: number;
+  /** Hebrew, rendered verbatim in the panel. The sentence an accountant checks. */
+  reason: string;
+  rule: ClassificationRule;
+  /** 'manual' is never overwritten by a re-run — same contract as correctedFields. */
+  source: 'auto' | 'manual';
+  decidedBy?: string | null;
+  decidedAt: Timestampish;
 }
 
 export type ErrorCode =
@@ -383,6 +446,15 @@ export interface DocumentDoc {
   extracted: ExtractedFields;
   /** Absent until extraction has run at least once. */
   extraction?: ExtractionMeta | null;
+  /**
+   * OPTIONAL, and the `?` is load-bearing — the same lesson clientMatch above cost us.
+   *
+   * Absent on every document that existed before classification shipped, and on any
+   * document whose extraction has not run yet. Typing it `Classification | null` would
+   * let a `!== null` guard compile, pass for `undefined`, and crash the panel on the
+   * first dereference. That has already happened once in this file.
+   */
+  classification?: Classification | null;
   error: DocError | null;
 
   // ── time ──
@@ -607,6 +679,32 @@ export interface LinkIdentifierResponse {
   conflictWithClientId?: string;
   /** How many previously-unassigned documents were re-filed. */
   backfilled: number;
+}
+
+/**
+ * Re-decides income/expense for one client's documents.
+ *
+ * Exists because a client's ח.פ. is what the whole ladder compares against, and it is
+ * routinely entered AFTER their first documents have already been read. This costs
+ * nothing to run — it works off the stored `extracted` fields and never calls Gemini —
+ * which is the dividend from deciding direction in code rather than asking the model.
+ *
+ * A button rather than a trigger on /clients: a write that fans out across hundreds of
+ * documents should be something someone chose to do.
+ */
+export interface ReclassifyClientRequest {
+  clientId: string;
+}
+
+export interface ReclassifyClientResponse {
+  clientId: string;
+  scanned: number;
+  /** Documents whose direction actually moved. */
+  changed: number;
+  /** Left alone because a human had set the direction by hand. */
+  skippedManual: number;
+  /** True when the client has more documents than one pass will touch. */
+  truncated: boolean;
 }
 
 export interface PollGmailResponse {

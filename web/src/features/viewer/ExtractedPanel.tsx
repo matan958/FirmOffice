@@ -1,8 +1,14 @@
 import { useState } from 'react';
-import { CURRENCY_SYMBOL, EXTRACTION_FIELDS } from '@shared';
-import type { DocumentDoc, ExtractedFieldSpec } from '@shared';
+import {
+  CURRENCY_SYMBOL,
+  DIRECTION_CHOICES,
+  DIRECTION_LABEL,
+  DIRECTION_MIN_CONFIDENCE,
+  EXTRACTION_FIELDS,
+} from '@shared';
+import type { DocDirection, DocumentDoc, ExtractedFieldSpec } from '@shared';
 import { Spinner } from '@/features/auth/AuthCard';
-import { correctField } from '@/features/inbox/actions';
+import { correctField, setDirection } from '@/features/inbox/actions';
 
 /**
  * The extracted fields, in the order the firm asked for them.
@@ -34,6 +40,7 @@ export default function ExtractedPanel({ doc, actorUid }: Props) {
 
   if (!meta) {
     // OCR may still be running, or this is a document from before extraction existed.
+    // No direction control either: there is nothing yet for a human to check it against.
     return (
       <p className="px-4 py-3 text-xs text-ink-400">
         {doc.ocr ? 'Reading the fields…' : 'Waiting for the document to be read.'}
@@ -41,18 +48,27 @@ export default function ExtractedPanel({ doc, actorUid }: Props) {
     );
   }
 
+  // A failed extraction still gets the direction control. This is the case where the
+  // machine read nothing at all, so it is precisely where a human needs to be able to
+  // say what the document is — hiding the control behind a successful parse would take
+  // the tool away at the only moment it is the only thing available.
   if (meta.error) {
     return (
-      <p className="mx-4 my-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-        The fields could not be read automatically — the text below is unaffected, and
-        you can still fill them in by hand.
-        <span className="mt-1 block font-mono text-[11px] opacity-70">{meta.error}</span>
-      </p>
+      <div className="px-4 py-3">
+        <DirectionBlock doc={doc} actorUid={actorUid} />
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          The fields could not be read automatically — the text below is unaffected, and
+          you can still fill them in by hand.
+          <span className="mt-1 block font-mono text-[11px] opacity-70">{meta.error}</span>
+        </p>
+      </div>
     );
   }
 
   return (
     <div className="px-4 py-3">
+      <DirectionBlock doc={doc} actorUid={actorUid} />
+
       {meta.amountsMismatch && (
         <p className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
           <strong>הסכומים אינם מסתדרים.</strong> סכום לפני מע״מ ועוד מע״מ אינם שווים
@@ -73,6 +89,108 @@ export default function ExtractedPanel({ doc, actorUid }: Props) {
           />
         ))}
       </dl>
+    </div>
+  );
+}
+
+/**
+ * Income or expense — above the eight fields, because it is the answer rather than a
+ * ninth thing read off the page.
+ *
+ * It shows its reasoning on purpose. This one value decides whether a document's VAT is
+ * reported as מע"מ עסקאות or as מע"מ תשומות, so an accountant has to be able to check
+ * it against the scan beside them in a second, not take it on trust. The two parties
+ * are printed underneath for exactly that: they are the evidence, which is also why
+ * they get no row of their own in the list below.
+ */
+function DirectionBlock({
+  doc,
+  actorUid,
+}: {
+  doc: DocumentDoc & { id: string };
+  actorUid: string | undefined;
+}) {
+  const [busy, setBusy] = useState<DocDirection | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // `classification` is genuinely absent on older documents and on anything still being
+  // read — hence the optional type. Do not "simplify" this to a !== null check.
+  const current = doc.classification;
+  const fields = doc.extracted ?? {};
+  const needsCheck =
+    !current || current.direction === 'unknown' || current.confidence < DIRECTION_MIN_CONFIDENCE;
+
+  async function choose(direction: DocDirection) {
+    if (!actorUid) return;
+    setBusy(direction);
+    setError(null);
+    try {
+      await setDirection(doc.id, direction, actorUid);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div dir="rtl" className="mb-3 rounded-lg border border-ink-200 bg-ink-50/60 px-3 py-2.5">
+      <div className="flex items-center gap-1">
+        {DIRECTION_CHOICES.map((choice) => {
+          const active = current?.direction === choice;
+          return (
+            <button
+              key={choice}
+              onClick={() => void choose(choice)}
+              disabled={!actorUid || busy !== null}
+              className={[
+                'flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors',
+                'disabled:cursor-not-allowed',
+                active
+                  ? 'bg-brand-600 text-white shadow-sm'
+                  : 'bg-white text-ink-600 ring-1 ring-ink-200 hover:bg-ink-100 disabled:hover:bg-white',
+              ].join(' ')}
+            >
+              {busy === choice ? <Spinner /> : DIRECTION_LABEL[choice]}
+            </button>
+          );
+        })}
+      </div>
+
+      <p className="mt-2 text-[11px] leading-relaxed text-ink-500">
+        {current ? current.reason : 'טרם סווג'}
+        {current?.source === 'manual' && (
+          <span className="mr-1.5 rounded bg-brand-50 px-1.5 py-0.5 text-[10px] font-medium text-brand-700">
+            ידני
+          </span>
+        )}
+      </p>
+
+      {(fields.vendorName || fields.recipientName) && (
+        <p className="mt-1 text-[11px] leading-relaxed text-ink-400">
+          {fields.vendorName && (
+            <>
+              מנפיק: {fields.vendorName}
+              {fields.vendorTaxId && <span dir="ltr"> · {fields.vendorTaxId}</span>}
+            </>
+          )}
+          {fields.vendorName && fields.recipientName && <br />}
+          {fields.recipientName && (
+            <>
+              לקוח: {fields.recipientName}
+              {fields.recipientTaxId && <span dir="ltr"> · {fields.recipientTaxId}</span>}
+            </>
+          )}
+        </p>
+      )}
+
+      {needsCheck && current?.source !== 'manual' && (
+        <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[11px] text-amber-900">
+          צריך בדיקה — בחר/י את הסיווג הנכון.
+        </p>
+      )}
+
+      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
     </div>
   );
 }

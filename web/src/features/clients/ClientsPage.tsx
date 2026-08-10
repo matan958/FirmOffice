@@ -1,11 +1,20 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
+import {
+  collection,
+  doc as docRef,
+  onSnapshot,
+  orderBy,
+  query,
+  serverTimestamp,
+  updateDoc,
+} from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '@/lib/firebase';
-import { COLLECTIONS, dropAddress } from '@shared';
+import { COLLECTIONS, dropAddress, toTaxId } from '@shared';
 import type { ClientDoc, CreateClientRequest, CreateClientResponse } from '@shared';
-import { ErrorNote, Field, SubmitButton } from '@/features/auth/AuthCard';
+import { ErrorNote, Field, SubmitButton, Spinner } from '@/features/auth/AuthCard';
 import { useIngestState } from '@/features/inbox/useIngestState';
+import { reclassifyClientFn } from '@/features/inbox/actions';
 
 type Row = ClientDoc & { id: string };
 
@@ -60,6 +69,12 @@ export default function ClientsPage() {
             <thead className="border-b border-ink-200 bg-ink-50 text-xs uppercase tracking-wide text-ink-500">
               <tr>
                 <th className="px-4 py-2.5 font-medium">Name</th>
+                <th className="px-4 py-2.5 font-medium">
+                  ח.פ. / ע.מ.
+                  <span className="ml-1.5 normal-case tracking-normal text-ink-400">
+                    decides income vs expense
+                  </span>
+                </th>
                 <th className="px-4 py-2.5 font-medium">Drop address</th>
                 <th className="px-4 py-2.5 font-medium">Status</th>
                 <th className="px-4 py-2.5 font-medium">Client ID</th>
@@ -68,14 +83,14 @@ export default function ClientsPage() {
             <tbody className="divide-y divide-ink-200">
               {rows === null && (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center text-ink-400">
+                  <td colSpan={5} className="px-4 py-10 text-center text-ink-400">
                     Loading…
                   </td>
                 </tr>
               )}
               {rows?.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="px-4 py-10 text-center">
+                  <td colSpan={5} className="px-4 py-10 text-center">
                     <p className="text-sm text-ink-600">No clients yet.</p>
                     <p className="mt-1 text-xs text-ink-400">
                       Add the first one above — a client is what documents get filed
@@ -87,6 +102,9 @@ export default function ClientsPage() {
               {rows?.map((c) => (
                 <tr key={c.id} className="row-hover">
                   <td className="px-4 py-3 font-medium">{c.name}</td>
+                  <td className="px-4 py-3">
+                    <TaxIdCell client={c} />
+                  </td>
                   <td className="px-4 py-3">
                     <DropAddress mailbox={mailbox} alias={c.ingestAlias} />
                   </td>
@@ -137,6 +155,148 @@ function DropAddress({ mailbox, alias }: { mailbox: string | null; alias: string
       {address}
       <span className="ml-2 font-sans text-ink-400">{copied ? 'copied' : 'copy'}</span>
     </button>
+  );
+}
+
+/**
+ * The client's own ח.פ., editable in place.
+ *
+ * This one number is the axle the whole income/expense classifier turns on: the ladder
+ * decides direction by asking which side of a document it appears on. Until it was
+ * editable, a client created without one could never be classified at all, and there
+ * was no screen anywhere in the product that would let anyone fix that — the field was
+ * write-once at creation and not even displayed.
+ *
+ * Written directly rather than through a callable. The rules already allow an accountant
+ * to update /clients, and unlike creation there is no ingest alias to allocate, so there
+ * is nothing here that needs to be atomic.
+ *
+ * Saving offers a re-classify, because the documents already in the system were decided
+ * against a client record that had no ח.פ. on it. Re-deciding them costs nothing — it
+ * re-runs a pure function over stored fields and never calls Gemini — but it is offered
+ * rather than done, so a write touching hundreds of documents stays something a person
+ * chose.
+ */
+function TaxIdCell({ client }: { client: Row }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [offerReclassify, setOfferReclassify] = useState(false);
+  const [reclassified, setReclassified] = useState<string | null>(null);
+
+  async function save() {
+    const trimmed = draft.trim();
+    // Normalized with the SAME function the extractor uses on the document, because the
+    // two are compared for equality. A ח.פ. stored as typed — '51-436695-4' — would
+    // never match '514366954' read off a scan, and nothing would report an error.
+    const normalized = trimmed === '' ? null : toTaxId(trimmed);
+
+    if (trimmed !== '' && normalized === null) {
+      setError('ח.פ. is 8 or 9 digits, for example 514366954');
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    try {
+      await updateDoc(docRef(db, COLLECTIONS.clients, client.id), {
+        taxId: normalized,
+        updatedAt: serverTimestamp(),
+      });
+      setEditing(false);
+      if (normalized !== null && normalized !== client.taxId) setOfferReclassify(true);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function reclassify() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await reclassifyClientFn({ clientId: client.id });
+      const { scanned, changed, skippedManual } = res.data;
+      setReclassified(
+        `${changed} of ${scanned} re-classified` +
+          (skippedManual > 0 ? `, ${skippedManual} left as set by hand` : ''),
+      );
+      setOfferReclassify(false);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (editing) {
+    return (
+      <span className="flex items-center gap-1.5">
+        <input
+          autoFocus
+          value={draft}
+          disabled={busy}
+          inputMode="numeric"
+          placeholder="514366954"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void save();
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          className="w-32 rounded-md border border-brand-400 px-2 py-1 font-mono text-xs outline-none
+                     focus:ring-2 focus:ring-brand-500/25"
+        />
+        <button
+          onClick={() => void save()}
+          disabled={busy}
+          className="rounded-md bg-brand-600 px-2 py-1 text-xs text-white disabled:opacity-50"
+        >
+          {busy ? <Spinner /> : 'Save'}
+        </button>
+        <button
+          onClick={() => setEditing(false)}
+          className="rounded-md px-1.5 py-1 text-xs text-ink-500 hover:bg-ink-100"
+        >
+          ✕
+        </button>
+        {error && <span className="text-xs text-red-600">{error}</span>}
+      </span>
+    );
+  }
+
+  return (
+    <span className="flex flex-wrap items-center gap-2">
+      <button
+        onClick={() => {
+          setDraft(client.taxId ?? '');
+          setEditing(true);
+          setReclassified(null);
+        }}
+        title="Click to edit"
+        className={[
+          'rounded-md px-2 py-1 font-mono text-xs transition-colors hover:bg-ink-100',
+          client.taxId ? 'text-ink-700' : 'text-amber-700',
+        ].join(' ')}
+      >
+        {client.taxId ?? 'not set — add it'}
+      </button>
+
+      {offerReclassify && (
+        <button
+          onClick={() => void reclassify()}
+          disabled={busy}
+          className="rounded-md bg-brand-50 px-2 py-1 text-xs font-medium text-brand-700
+                     hover:bg-brand-100 disabled:opacity-50"
+        >
+          {busy ? <Spinner /> : 'סווג מחדש את מסמכי הלקוח'}
+        </button>
+      )}
+
+      {reclassified && <span className="text-xs text-emerald-700">{reclassified}</span>}
+      {error && !editing && <span className="text-xs text-red-600">{error}</span>}
+    </span>
   );
 }
 

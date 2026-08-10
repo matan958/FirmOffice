@@ -55,6 +55,7 @@ export { ocrTask } from './ocr/task.js';
 
 export { getDocumentUrl } from './admin/getDocumentUrl.js';
 export { retryOcr } from './ocr/retry.js';
+export { reclassifyClient } from './admin/reclassifyClient.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // M4 — Gmail ingestion

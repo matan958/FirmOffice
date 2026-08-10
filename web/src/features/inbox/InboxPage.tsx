@@ -4,8 +4,8 @@ import { collection, onSnapshot, orderBy, query } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { useSession } from '@/features/auth/AuthProvider';
 import { ErrorNote, Spinner } from '@/features/auth/AuthCard';
-import { COLLECTIONS } from '@shared';
-import type { ClientDoc, Timestampish, WorkflowStatus } from '@shared';
+import { COLLECTIONS, DIRECTION_LABEL } from '@shared';
+import type { ClientDoc, DocDirection, Timestampish, WorkflowStatus } from '@shared';
 import MetricsBar from './MetricsBar';
 import MailStatus from './MailStatus';
 import PipelineChip from './PipelineChip';
@@ -28,6 +28,7 @@ export default function InboxPage() {
   const status = (params.get('status') ?? 'all') as WorkflowStatus | 'all';
   const clientId = params.get('client') ?? 'all';
   const unassignedOnly = params.get('unassigned') === '1';
+  const direction = (params.get('direction') ?? 'all') as DocDirection | 'all';
 
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => {
@@ -36,7 +37,7 @@ export default function InboxPage() {
     );
   }, []);
 
-  const docs = useDocuments({ status, clientId, unassignedOnly });
+  const docs = useDocuments({ status, clientId, unassignedOnly, direction });
 
   const patch = (next: Record<string, string | null>) => {
     const merged = new URLSearchParams(params);
@@ -56,6 +57,24 @@ export default function InboxPage() {
             Everything clients have sent, newest first.
           </p>
         </div>
+
+        <div className="flex flex-wrap items-center gap-4">
+        <label className="flex items-center gap-2 text-sm text-ink-600">
+          הכנסה / הוצאה
+          <select
+            value={direction}
+            onChange={(e) => patch({ direction: e.target.value === 'all' ? null : e.target.value })}
+            className="rounded-lg border border-ink-200 bg-white px-2.5 py-1.5 text-sm shadow-card
+                       outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/25"
+          >
+            <option value="all">הכל</option>
+            <option value="income">{DIRECTION_LABEL.income}</option>
+            <option value="expense">{DIRECTION_LABEL.expense}</option>
+            <option value="neither">{DIRECTION_LABEL.neither}</option>
+            {/* The review queue: the ladder ran and could not decide. */}
+            <option value="unknown">{DIRECTION_LABEL.unknown} — צריך בדיקה</option>
+          </select>
+        </label>
 
         <label className="flex items-center gap-2 text-sm text-ink-600">
           Client
@@ -78,6 +97,7 @@ export default function InboxPage() {
             ))}
           </select>
         </label>
+        </div>
       </div>
 
       <div className="mt-6">
@@ -108,6 +128,7 @@ export default function InboxPage() {
               <tr>
                 <th className="px-4 py-2.5 font-medium">Document</th>
                 <th className="px-4 py-2.5 font-medium">Client</th>
+                <th className="px-4 py-2.5 font-medium">הכנסה / הוצאה</th>
                 <th className="px-4 py-2.5 font-medium">Source</th>
                 <th className="px-4 py-2.5 font-medium">Received</th>
                 <th className="px-4 py-2.5 font-medium">Pipeline</th>
@@ -117,7 +138,7 @@ export default function InboxPage() {
             <tbody className="divide-y divide-ink-200">
               {docs.status === 'loading' && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-ink-400">
+                  <td colSpan={7} className="px-4 py-12 text-center text-ink-400">
                     <span className="inline-flex items-center gap-2">
                       <Spinner /> Loading…
                     </span>
@@ -126,7 +147,7 @@ export default function InboxPage() {
               )}
               {docs.status === 'ready' && docs.rows.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center">
+                  <td colSpan={7} className="px-4 py-12 text-center">
                     <p className="text-sm text-ink-600">Nothing here.</p>
                     <p className="mt-1 text-xs text-ink-400">
                       {status !== 'all' || clientId !== 'all' || unassignedOnly
@@ -151,6 +172,42 @@ export default function InboxPage() {
         </p>
       )}
     </main>
+  );
+}
+
+/**
+ * Income or expense, at a glance.
+ *
+ * Colour carries the meaning here, so the list can be scanned without reading: expenses
+ * are most of the volume and stay quiet, income stands out, and anything the ladder
+ * could not settle is amber — the same amber the Unassigned queue uses, because it is
+ * the same kind of thing, a row waiting on a human.
+ */
+function DirectionChip({ doc }: { doc: DocRow }) {
+  const c = doc.classification;
+
+  // Absent, not unknown: this document predates classification or has not been read yet.
+  // Saying "—" is honest; showing "לא ידוע" would claim we looked.
+  if (!c) return <span className="text-xs text-ink-300">—</span>;
+
+  const tone =
+    c.direction === 'income'
+      ? 'bg-emerald-50 text-emerald-800 ring-emerald-200'
+      : c.direction === 'expense'
+        ? 'bg-ink-100 text-ink-700 ring-ink-200'
+        : c.direction === 'neither'
+          ? 'bg-ink-50 text-ink-500 ring-ink-200'
+          : 'bg-amber-50 text-amber-900 ring-amber-300';
+
+  return (
+    <span
+      dir="rtl"
+      title={c.reason}
+      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ring-1 ${tone}`}
+    >
+      {DIRECTION_LABEL[c.direction]}
+      {c.source === 'manual' && <span className="text-[10px] opacity-60">ידני</span>}
+    </span>
   );
 }
 
@@ -226,6 +283,10 @@ function Row({
             onClose={() => setFiling(false)}
           />
         )}
+      </td>
+
+      <td className="px-4 py-3">
+        <DirectionChip doc={row} />
       </td>
 
       <td className="px-4 py-3">

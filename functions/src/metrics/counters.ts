@@ -3,6 +3,7 @@ import { logger } from 'firebase-functions';
 import { FieldValue } from 'firebase-admin/firestore';
 import { db } from '../lib/firebase.js';
 import { computeChange, hasWork, metricsPatch } from './deltas.js';
+import { reclassifyDocument } from '../classify/reclassify.js';
 import { COLLECTIONS, METRICS_DOC_ID, SUBCOLLECTIONS } from '../shared.js';
 import type { DocumentDoc } from '../shared.js';
 
@@ -34,6 +35,21 @@ export const onDocumentChanged = onDocumentWritten(
       ? (event.data.before.data() as DocumentDoc)
       : undefined;
     const after = event.data?.after.exists ? (event.data.after.data() as DocumentDoc) : undefined;
+
+    // A document that arrived unassigned was classified against no client at all. The
+    // moment an accountant files it, income-vs-expense becomes answerable — so answer
+    // it here rather than making them press a button for something already derivable.
+    //
+    // Guarded on `extraction` so this does not fire on create, when there are no fields
+    // to decide from yet; extraction writes its own classification a moment later. The
+    // write below only touches `classification`, so the re-fire it causes sees an
+    // unchanged clientId and stops. Placed above the hasWork() early return, which is
+    // about metrics deltas and would skip a pure re-filing.
+    if (after?.clientId && before?.clientId !== after.clientId && after.extraction) {
+      await reclassifyDocument(docId).catch((err: unknown) =>
+        logger.warn('counters: reclassify failed', { docId, err: String(err) }),
+      );
+    }
 
     const change = computeChange(before, after);
     if (!hasWork(change)) return; // e.g. an updatedAt-only touch

@@ -3,6 +3,7 @@ import { FieldValue } from 'firebase-admin/firestore';
 import { db } from '../lib/firebase.js';
 import { extractWithGemini } from './gemini.js';
 import { normalize } from './normalize.js';
+import { buildClassification } from '../classify/reclassify.js';
 import { COLLECTIONS } from '../shared.js';
 import type { DocumentDoc, ExtractedFields, ExtractionMeta } from '../shared.js';
 
@@ -67,9 +68,22 @@ export async function runExtraction(docId: string): Promise<'done' | 'skipped' |
         error: null,
       };
 
+    // Income or expense, decided from the fields we just read and the client record.
+    // Written in the SAME update, so a document never exists in a state where the
+    // panel has fields but no direction — which would read as "we could not tell"
+    // rather than "this has not finished yet". A hand-set direction is left alone.
+    const classification =
+      doc.classification?.source === 'manual'
+        ? undefined
+        : ((await buildClassification(doc.clientId, merged).catch((err: unknown) => {
+            logger.warn('classify failed', { docId, err: String(err) });
+            return null;
+          })) ?? undefined);
+
     await docRef.update({
       extracted: merged,
       extraction: meta,
+      ...(classification ? { classification } : {}),
       updatedAt: FieldValue.serverTimestamp(),
     });
 
@@ -77,6 +91,7 @@ export async function runExtraction(docId: string): Promise<'done' | 'skipped' |
       docId,
       found: Object.values(merged).filter((v) => v !== null && v !== undefined).length,
       amountsMismatch,
+      direction: classification?.direction ?? null,
       durationMs: meta.durationMs,
     });
     return 'done';

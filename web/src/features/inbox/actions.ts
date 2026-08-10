@@ -4,11 +4,14 @@ import { db, functions } from '@/lib/firebase';
 import { COLLECTIONS } from '@shared';
 import type { ExtractedFieldSpec } from '@shared';
 import type {
+  DocDirection,
   GetDocumentUrlRequest,
   GetDocumentUrlResponse,
   LinkIdentifierRequest,
   LinkIdentifierResponse,
   PollGmailResponse,
+  ReclassifyClientRequest,
+  ReclassifyClientResponse,
   RetryOcrRequest,
   RetryOcrResponse,
   WorkflowStatus,
@@ -105,6 +108,52 @@ export async function correctField(
     updatedAt: serverTimestamp(),
   });
 }
+
+/**
+ * Overrides the income/expense direction by hand.
+ *
+ * `source: 'manual'` is the whole point of the write: every automatic path — extraction,
+ * the re-file trigger, the reclassify button — checks it and returns early, so a human
+ * decision is never quietly reverted by a later re-read. Exactly the contract
+ * `extraction.correctedFields` has for individual fields.
+ *
+ * `decidedBy` is pinned to the caller's own uid by the security rules, so this doubles
+ * as the audit answer to "who decided this was income" — a question that has a real
+ * consequence, since the direction is what puts the VAT on one side of the return or
+ * the other.
+ */
+export async function setDirection(
+  docId: string,
+  direction: DocDirection,
+  actorUid: string,
+): Promise<void> {
+  await updateDoc(doc(db, COLLECTIONS.documents, docId), {
+    classification: {
+      direction,
+      confidence: 1,
+      reason: 'נקבע ידנית',
+      rule: 'manual',
+      source: 'manual',
+      decidedBy: actorUid,
+      decidedAt: serverTimestamp(),
+    },
+    updatedAt: serverTimestamp(),
+  });
+}
+
+/**
+ * Re-decides income/expense across one client's documents.
+ *
+ * Costs nothing to run — it re-applies a pure function to fields already stored, with
+ * no call to Gemini — which is why it can be a button rather than a scheduled job.
+ * Offered after a client's ח.פ. is entered, because that number is what the whole
+ * decision compares against and it is usually filled in after the first documents have
+ * already been read.
+ */
+export const reclassifyClientFn = httpsCallable<ReclassifyClientRequest, ReclassifyClientResponse>(
+  functions,
+  'reclassifyClient',
+);
 
 /**
  * Files an unassigned document against a client, or moves it between clients.

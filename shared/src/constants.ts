@@ -1,5 +1,8 @@
 /** FirmOffice — shared constants. Values that MUST agree between client and server. */
 
+// Type-only, so this stays a one-way dependency with no runtime import cycle.
+import type { DocDirection } from './types.js';
+
 // ─── Firestore collection paths ──────────────────────────────────────────────
 
 export const COLLECTIONS = {
@@ -189,7 +192,10 @@ export type ExtractedFieldKey =
   | 'vendorTaxId'
   | 'netAmount'
   | 'vatAmount'
-  | 'totalAmount';
+  | 'totalAmount'
+  // Read from every document, never given a row of its own — see COUNTERPARTY_FIELDS.
+  | 'recipientName'
+  | 'recipientTaxId';
 
 export interface ExtractedFieldSpec {
   key: ExtractedFieldKey;
@@ -265,6 +271,41 @@ export const EXTRACTION_FIELDS: readonly ExtractedFieldSpec[] = [
 ];
 
 /**
+ * The other side of the document. Read from every document, never given a row.
+ *
+ * An invoice has two parties, and until now only one was read — the `vendorTaxId` hint
+ * above still says to take the issuer's number "never the customer". That instruction
+ * was throwing away the single fact that decides whether a document is income or an
+ * expense, which is not a property of the document at all but of which side of it the
+ * client sits on.
+ *
+ * These are kept OUT of EXTRACTION_FIELDS on purpose. The firm asked for eight rows in
+ * a stated order and gets exactly eight; these two are evidence, not fields, and they
+ * appear only underneath the direction as its justification. Same treatment as
+ * `currency` below, done through the type system rather than by hand.
+ */
+export const COUNTERPARTY_FIELDS: readonly ExtractedFieldSpec[] = [
+  {
+    key: 'recipientName',
+    label: 'שם הלקוח במסמך',
+    kind: 'text',
+    hint: 'The business the document is ADDRESSED TO (לכבוד / לקוח / שם הלקוח) — the buyer, not the issuer. Null on a retail receipt that names no customer.',
+  },
+  {
+    key: 'recipientTaxId',
+    label: 'ח.פ. הלקוח במסמך',
+    kind: 'id',
+    hint: 'The RECIPIENT\'s ח.פ. / ע.מ. / ת.ז. — the number printed beside לכבוד, never the issuer\'s. Digits only. Null if the document names no customer.',
+  },
+];
+
+/** Everything the model is asked for. The panel renders only EXTRACTION_FIELDS. */
+export const ALL_EXTRACTED_FIELDS: readonly ExtractedFieldSpec[] = [
+  ...EXTRACTION_FIELDS,
+  ...COUNTERPARTY_FIELDS,
+];
+
+/**
  * Extracted but never given a row of its own.
  *
  * The firm asked for eight fields and gets eight. Currency is still read, because
@@ -293,6 +334,105 @@ export const AMOUNT_RECONCILE_TOLERANCE = 0.02;
 /** Vertex AI, validated against the real endpoint on 2026-08-10. */
 export const VERTEX_LOCATION = 'us-central1';
 export const VERTEX_MODEL = 'gemini-2.5-flash';
+
+// ─── Income vs expense ───────────────────────────────────────────────────────
+
+/**
+ * Israeli ח.פ. / ע.מ. / ת.ז. — nine digits.
+ *
+ * Shared rather than server-side because this is a JOIN KEY. It normalizes the number
+ * on the client record AND the number read off the document, and the two are compared
+ * for equality; two normalizers that disagreed by one character would make every
+ * comparison miss silently, which looks exactly like "the classifier doesn't work".
+ *
+ * Eight digits are padded rather than rejected. A dropped leading zero is the ordinary
+ * OCR failure on these, and `012345678` and `12345678` must not be two businesses.
+ */
+export function toTaxId(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const digits = value.replace(/\D/g, '');
+  if (digits.length < 8 || digits.length > 9) return null;
+  return digits.padStart(9, '0');
+}
+
+/** Suffixes that are legal furniture, not part of who the business is. */
+const LEGAL_SUFFIX_RE = /בע"מ|בעמ|\bltd\b\.?|\blimited\b|\binc\b\.?|\bllc\b|\bcorp\b\.?|\bco\b\.?/gi;
+
+/**
+ * Canonical form of a business name, for the fallback rung of the direction ladder.
+ *
+ * Used for EXACT comparison after normalization, never fuzzy. Fuzzy matching on a tax
+ * document is how a document ends up filed under the wrong company, and unlike a wrong
+ * amount there is nothing about the result that looks wrong afterwards.
+ *
+ * The gershayim swap matters more than it looks: `בע״מ` printed with U+05F4 and `בע"מ`
+ * typed with an ASCII quote are the same two letters to a reader and different strings
+ * to a computer, and which one appears depends on whoever typed the client record.
+ */
+export function normalizeBusinessName(raw: string): string {
+  return raw
+    .normalize('NFKC')
+    .replace(/[׳״‘’“”]/g, '"')
+    .toLowerCase()
+    .replace(LEGAL_SUFFIX_RE, ' ')
+    // Punctuation last: the suffixes above contain quotes and dots of their own.
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
+/**
+ * Document types that are not bookkeeping entries at all.
+ *
+ * `חשבון עסקה` is the one that earns this list. It looks like an invoice, carries
+ * amounts and VAT, and is NOT a tax document — booking one is a real filing error, and
+ * a system that offered only income-or-expense would force exactly that.
+ */
+export const NON_TAX_DOCUMENT_RE =
+  /חשבון\s*עסקה|דרישת\s*תשלום|הצעת\s*מחיר|תעודת\s*משלוח|דף\s*חשבון|פירוט\s*עסקאות|אישור\s*ניכוי|הוראת\s*קבע|proforma|pro\s*forma|quotation|delivery\s*note|statement/i;
+
+/**
+ * Below this the direction is shown as needing a human look.
+ *
+ * Same role AUTO_ASSIGN_MIN_CONFIDENCE plays for client mapping: the ladder always
+ * produces an answer, and this is the line between an answer to act on and an answer
+ * to check. Set so that a name-only match (0.85) passes and an inference drawn from the
+ * ABSENCE of a named customer (0.80) also passes — but only just, which is the point.
+ */
+export const DIRECTION_MIN_CONFIDENCE = 0.75;
+
+/** Ceiling for each rung of the direction ladder, strongest first. */
+export const DIRECTION_CONFIDENCE = {
+  nonTaxDocument: 0.9,
+  ambiguous: 0.2,
+  issuerTaxId: 0.98,
+  recipientTaxId: 0.98,
+  issuerName: 0.85,
+  recipientName: 0.85,
+  noRecipient: 0.8,
+  neitherParty: 0.3,
+  unverifiedRecipient: 0.6,
+  clientTaxIdMissing: 0.0,
+  insufficient: 0.0,
+  manual: 1.0,
+} as const;
+
+/** How many of a client's documents one reclassify pass will touch. */
+export const RECLASSIFY_SCAN_LIMIT = 300;
+
+/** Hebrew, like the field labels — this is bookkeeping vocabulary, not UI chrome. */
+export const DIRECTION_LABEL: Record<DocDirection, string> = {
+  income: 'הכנסה',
+  expense: 'הוצאה',
+  neither: 'לא רלוונטי',
+  unknown: 'לא ידוע',
+};
+
+/**
+ * What a human may choose. `unknown` is absent on purpose: it is a statement about the
+ * system's own certainty, and there is no reason for a person to assert it — they are
+ * looking at the document.
+ */
+export const DIRECTION_CHOICES: readonly DocDirection[] = ['income', 'expense', 'neither'];
 
 // ─── Client mapping ──────────────────────────────────────────────────────────
 

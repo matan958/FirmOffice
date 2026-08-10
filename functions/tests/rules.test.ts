@@ -276,6 +276,80 @@ describe('documents — update constraints', () => {
     );
   });
 
+  it('lets an accountant set the income/expense direction as themselves', async () => {
+    await assertSucceeds(
+      updateDoc(doc(asAccountant('acct-1'), 'documents/doc-a'), {
+        classification: {
+          direction: 'expense',
+          confidence: 1,
+          reason: 'נקבע ידנית',
+          rule: 'manual',
+          source: 'manual',
+          decidedBy: 'acct-1',
+          decidedAt: new Date(),
+        },
+        updatedAt: new Date(),
+      }),
+    );
+  });
+
+  it('denies attributing a direction to a colleague', async () => {
+    // Direction decides whether a document's VAT is reported as מע"מ עסקאות or as
+    // מע"מ תשומות. "Who decided this was income" is a question the firm may have to
+    // answer to an auditor, and an answer the writer could choose is worth nothing —
+    // so decidedBy is pinned to the caller, exactly like statusActorUid.
+    await assertFails(
+      updateDoc(doc(asAccountant('acct-1'), 'documents/doc-a'), {
+        classification: {
+          direction: 'income',
+          confidence: 1,
+          reason: 'נקבע ידנית',
+          rule: 'manual',
+          source: 'manual',
+          decidedBy: 'acct-2',
+          decidedAt: new Date(),
+        },
+        updatedAt: new Date(),
+      }),
+    );
+  });
+
+  it('denies a hand-written direction that claims to be automatic', async () => {
+    // `source` is what every server path checks before overwriting a direction. A
+    // browser write marked 'auto' would be silently reverted by the next re-read, so
+    // the accountant's decision would appear to stick and then quietly vanish.
+    await assertFails(
+      updateDoc(doc(asAccountant('acct-1'), 'documents/doc-a'), {
+        classification: {
+          direction: 'income',
+          confidence: 0.98,
+          reason: 'ח.פ. של הלקוח מופיע בצד המנפיק',
+          rule: 'issuerTaxId',
+          source: 'auto',
+          decidedBy: 'acct-1',
+          decidedAt: new Date(),
+        },
+        updatedAt: new Date(),
+      }),
+    );
+  });
+
+  it('denies a client setting the direction on their own document', async () => {
+    await assertFails(
+      updateDoc(doc(asClient('user-a', CLIENT_A), 'documents/doc-a'), {
+        classification: {
+          direction: 'expense',
+          confidence: 1,
+          reason: 'נקבע ידנית',
+          rule: 'manual',
+          source: 'manual',
+          decidedBy: 'user-a',
+          decidedAt: new Date(),
+        },
+      }),
+    );
+  });
+
   it('denies a client touching extracted fields', async () => {
     await assertFails(
       updateDoc(doc(asClient('user-a', CLIENT_A), 'documents/doc-a'), {

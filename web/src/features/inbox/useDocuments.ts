@@ -10,7 +10,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { COLLECTIONS } from '@shared';
-import type { DocumentDoc, WorkflowStatus } from '@shared';
+import type { DocDirection, DocumentDoc, WorkflowStatus } from '@shared';
 
 export type DocRow = DocumentDoc & { id: string };
 
@@ -19,6 +19,8 @@ export interface DocumentFilters {
   clientId: string | 'all';
   /** Show only documents with no client — the Unassigned queue. */
   unassignedOnly?: boolean;
+  /** Income / expense / neither / unknown. `unknown` is the review queue. */
+  direction?: DocDirection | 'all';
 }
 
 export type DocumentsState =
@@ -34,13 +36,13 @@ export type DocumentsState =
  * scatter a morning's post through yesterday's list.
  *
  * The filter combinations here are exactly the ones the deployed composite indexes
- * cover: status alone, client alone, or both. Adding a channel filter would need three
- * further index combinations, so it is deliberately left out rather than silently
- * failing at runtime with a missing-index error.
+ * cover: status alone, client alone, direction alone, or any combination of the three.
+ * Adding a channel filter on top would need another eight, so it is deliberately left
+ * out rather than silently failing at runtime with a missing-index error.
  */
 export function useDocuments(filters: DocumentFilters, pageSize = 50): DocumentsState {
   const [state, setState] = useState<DocumentsState>({ status: 'loading' });
-  const { status, clientId, unassignedOnly } = filters;
+  const { status, clientId, unassignedOnly, direction } = filters;
 
   useEffect(() => {
     const constraints: QueryConstraint[] = [];
@@ -51,6 +53,14 @@ export function useDocuments(filters: DocumentFilters, pageSize = 50): Documents
       constraints.push(where('clientId', '==', clientId));
     }
     if (status !== 'all') constraints.push(where('workflowStatus', '==', status));
+
+    // Documents predating classification have no `classification` map at all, so they
+    // match no direction filter — including 'unknown'. That is the honest behaviour:
+    // "never classified" is not the same as "classified and undecidable", and quietly
+    // folding the two together would hide a backlog rather than surface it.
+    if (direction && direction !== 'all') {
+      constraints.push(where('classification.direction', '==', direction));
+    }
 
     constraints.push(orderBy('receivedAt', 'desc'), limit(pageSize));
 
@@ -66,7 +76,7 @@ export function useDocuments(filters: DocumentFilters, pageSize = 50): Documents
         setState({ status: 'error', message: err.message });
       },
     );
-  }, [status, clientId, unassignedOnly, pageSize]);
+  }, [status, clientId, unassignedOnly, direction, pageSize]);
 
   return state;
 }

@@ -114,16 +114,28 @@ service cloud.firestore {
       // later automatic re-read reverting the fix. Splitting them would mean an
       // accountant's correction survives until the next Retry OCR and then silently
       // disappears, which is worse than not being able to correct at all.
+      //
+      // `classification` is writable so a direction can be overridden by hand, but a
+      // hand-set direction MUST name its author, pinned to the caller's own uid for the
+      // same reason statusActorUid is. This field decides whether a document's VAT is
+      // reported as מע"מ עסקאות or מע"מ תשומות, so "who said this was income" is a
+      // question the firm may have to answer to an auditor — and an answer that could
+      // name a colleague the writer chose would be worth nothing.
       allow update: if isAccountant()
         && changedKeys().hasOnly([
              'workflowStatus', 'assignedAccountantUid', 'clientId',
              'clientNameCache', 'clientMatch', 'extracted', 'extraction',
-             'updatedAt', 'statusActorUid'
+             'classification', 'updatedAt', 'statusActorUid'
            ])
         && request.resource.data.workflowStatus in ['pending', 'in_progress', 'processed']
         && (
              !changedKeys().hasAny(['workflowStatus'])
              || request.resource.data.statusActorUid == request.auth.uid
+           )
+        && (
+             !changedKeys().hasAny(['classification'])
+             || (request.resource.data.classification.source == 'manual'
+                 && request.resource.data.classification.decidedBy == request.auth.uid)
            );
 
       allow delete: if false;   // soft delete only, via a callable

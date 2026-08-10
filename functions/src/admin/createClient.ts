@@ -10,6 +10,7 @@ import {
   identifierKey,
   ingestAliasFrom,
   normalizeEmail,
+  toTaxId,
 } from '../shared.js';
 import type {
   ClientDoc,
@@ -62,7 +63,11 @@ export const createClient = onCall<CreateClientRequest, Promise<CreateClientResp
       const client: ServerWrite<ClientDoc> = {
         name,
         legalName: data.legalName?.trim() || null,
-        taxId: data.taxId?.trim() || null,
+        // Normalized, not trimmed. This number is compared for equality against the
+        // ח.פ. read off every document to decide income vs expense, so '51-436695-4'
+        // typed here and '514366954' read by OCR have to become the same string.
+        // Storing it raw made that comparison silently miss for every client.
+        taxId: toTaxId(data.taxId ?? null),
         primaryContactEmail: data.primaryContactEmail?.trim().toLowerCase() || null,
         primaryContactPhone: data.primaryContactPhone?.trim() || null,
         ingestAlias: candidate,

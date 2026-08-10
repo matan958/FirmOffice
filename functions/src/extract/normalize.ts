@@ -1,5 +1,13 @@
-import { AMOUNT_RECONCILE_TOLERANCE, DEFAULT_CURRENCY } from '../shared.js';
+import { AMOUNT_RECONCILE_TOLERANCE, DEFAULT_CURRENCY, toTaxId } from '../shared.js';
 import type { ExtractedFields } from '../shared.js';
+
+/**
+ * Re-exported, not redefined. `toTaxId` moved to @shared when it stopped being a
+ * cleanup step and became a join key — it now normalizes the client record as well as
+ * the document, and the two are compared for equality. Two copies that drifted apart
+ * would make every comparison miss without anything erroring.
+ */
+export { toTaxId };
 
 /**
  * Cleans and sanity-checks whatever the model returned.
@@ -72,13 +80,6 @@ function validDate(year: number, month: number, day: number): string | null {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
-/** Israeli company and dealer numbers are 9 digits; strip anything else. */
-export function toTaxId(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const digits = value.replace(/\D/g, '');
-  return digits.length >= 8 && digits.length <= 9 ? digits : null;
-}
-
 export function toText(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.replace(/\s+/g, ' ').trim();
@@ -104,6 +105,8 @@ export function normalize(raw: Record<string, unknown>): Normalized {
     issueDate: toIsoDate(raw['issueDate']),
     vendorName: toText(raw['vendorName']),
     vendorTaxId: toTaxId(raw['vendorTaxId']),
+    recipientName: toText(raw['recipientName']),
+    recipientTaxId: toTaxId(raw['recipientTaxId']),
     netAmount,
     vatAmount,
     totalAmount,

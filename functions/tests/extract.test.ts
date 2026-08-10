@@ -8,7 +8,7 @@ import {
   toText,
 } from '../src/extract/normalize.js';
 import { buildPrompt, responseSchema } from '../src/extract/schema.js';
-import { EXTRACTION_FIELDS } from '../src/shared.js';
+import { ALL_EXTRACTED_FIELDS } from '../src/shared.js';
 
 /**
  * A schema-constrained model response guarantees the SHAPE, not the CONTENT. These
@@ -86,6 +86,17 @@ describe('toTaxId', () => {
     expect(toTaxId('12345678901234')).toBeNull();
     expect(toTaxId('')).toBeNull();
   });
+
+  it('pads a dropped leading zero to nine digits', () => {
+    // This function became a JOIN KEY when it started deciding income vs expense:
+    // the same number is normalized from the client record and from the scan, and the
+    // two are compared for equality. Left unpadded, an eight-digit read of a nine-digit
+    // number is a different string, and the comparison misses with nothing to show for
+    // it — which looks exactly like "the classifier doesn't work".
+    expect(toTaxId('012345678')).toBe('012345678');
+    expect(toTaxId('12345678')).toBe('012345678');
+    expect(toTaxId('12345678')).toBe(toTaxId('012345678'));
+  });
 });
 
 describe('toText', () => {
@@ -154,6 +165,8 @@ describe('normalize', () => {
       issueDate: '2026-03-12',
       vendorName: 'סופר פארם בע"מ',
       vendorTaxId: '514366954',
+      recipientName: null,
+      recipientTaxId: null,
       netAmount: 211,
       vatAmount: 37.98,
       totalAmount: 248.98,
@@ -162,13 +175,28 @@ describe('normalize', () => {
     expect(amountsMismatch).toBe(false);
   });
 
+  it('carries the counterparty through', () => {
+    // These must survive normalize(): runExtraction writes `extracted` as a whole-object
+    // replace, so a key normalize() does not emit is erased on the next OCR retry —
+    // silently taking the income/expense decision with it.
+    const { fields } = normalize({
+      vendorTaxId: 'ח.פ. 513094219',
+      recipientName: '  טסט קליינט   בע"מ ',
+      recipientTaxId: '51-566700-1',
+    });
+
+    expect(fields.recipientName).toBe('טסט קליינט בע"מ');
+    expect(fields.recipientTaxId).toBe('515667001');
+    expect(fields.vendorTaxId).toBe('513094219');
+  });
+
   it('defaults an absent currency to shekels', () => {
     expect(normalize({}).fields.currency).toBe('ILS');
   });
 
   it('turns every unfound field into null, never undefined', () => {
     const { fields } = normalize({});
-    for (const field of EXTRACTION_FIELDS) {
+    for (const field of ALL_EXTRACTED_FIELDS) {
       expect(fields[field.key]).toBeNull();
     }
   });
@@ -183,7 +211,7 @@ describe('schema generation', () => {
       properties: Record<string, unknown>;
       required: string[];
     };
-    for (const field of EXTRACTION_FIELDS) {
+    for (const field of ALL_EXTRACTED_FIELDS) {
       expect(schema.properties[field.key]).toBeDefined();
       expect(schema.required).toContain(field.key);
     }
@@ -210,7 +238,7 @@ describe('schema generation', () => {
 
   it('puts every field label and hint into the prompt', () => {
     const prompt = buildPrompt('some OCR text');
-    for (const field of EXTRACTION_FIELDS) {
+    for (const field of ALL_EXTRACTED_FIELDS) {
       expect(prompt).toContain(field.key);
       expect(prompt).toContain(field.label);
     }
