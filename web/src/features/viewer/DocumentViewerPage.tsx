@@ -13,6 +13,7 @@ import SourceChip from '@/features/inbox/SourceChip';
 import AssignDialog from '@/features/inbox/AssignDialog';
 import { assignClient, retryOcrFn, setWorkflowStatus } from '@/features/inbox/actions';
 import { useDocumentPreview } from './useDocumentPreview';
+import ExtractedPanel from './ExtractedPanel';
 
 type Doc = DocumentDoc & { id: string };
 
@@ -333,7 +334,16 @@ export default function DocumentViewerPage() {
         </section>
 
         <section className="flex min-h-0 flex-1 flex-col overflow-auto border-t border-ink-200 bg-white lg:border-l lg:border-t-0">
-          <div className="sticky top-0 flex items-baseline justify-between gap-2 border-b border-ink-200 bg-white px-4 py-2.5">
+          {/* Fields first, then the raw text underneath. The fields are what gets
+              posted to the books; the text is what you check them against. */}
+          <div className="border-b border-ink-200">
+            <h2 className="px-4 pt-3 text-xs font-semibold uppercase tracking-wide text-ink-500">
+              Fields
+            </h2>
+            <ExtractedPanel doc={document} actorUid={session?.user.uid} />
+          </div>
+
+          <div className="flex items-baseline justify-between gap-2 border-b border-ink-200 bg-white px-4 py-2.5">
             <h2 className="text-xs font-semibold uppercase tracking-wide text-ink-500">
               Extracted text{numPages > 1 && ` · page ${pageNumber}`}
             </h2>

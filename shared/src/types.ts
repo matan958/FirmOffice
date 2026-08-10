@@ -223,16 +223,51 @@ export interface OcrResult {
   tokensTruncated: boolean;
 }
 
-/** Structured field extraction. Populated in M6; empty object before then. */
+/**
+ * Structured fields read off an Israeli tax document.
+ *
+ * Every field is nullable and every field means "not found" when null — never zero,
+ * never an empty string. A missing total and a total of ₪0 are different facts, and
+ * collapsing them would have an accountant post a nil entry for a real invoice.
+ *
+ * The keys correspond 1:1 to EXTRACTION_FIELDS, which is what the panel renders and
+ * what the model is asked for. Adding a field means adding it in both places.
+ */
 export interface ExtractedFields {
-  documentType?: string;
-  invoiceNumber?: string;
-  issueDate?: string;
-  totalAmount?: number;
-  currency?: string;
-  vatAmount?: number;
-  vendorName?: string;
-  vendorTaxId?: string;
+  documentType?: string | null;
+  invoiceNumber?: string | null;
+  /** ISO yyyy-mm-dd. Stored normalized; rendered in the firm's format. */
+  issueDate?: string | null;
+  vendorName?: string | null;
+  /** Digits only. */
+  vendorTaxId?: string | null;
+  netAmount?: number | null;
+  vatAmount?: number | null;
+  totalAmount?: number | null;
+  /** ISO code. Not shown as a row — carried as the symbol on the amounts. */
+  currency?: string | null;
+}
+
+/** How a document's `extracted` came to hold what it holds. */
+export interface ExtractionMeta {
+  engine: 'gemini' | 'manual';
+  model: string | null;
+  extractedAt: Timestampish;
+  durationMs: number;
+  /**
+   * True when netAmount + vatAmount does not equal totalAmount.
+   *
+   * The single most useful automatic check on a tax document, and the reason the
+   * amounts are worth extracting separately rather than as one total: a digit misread
+   * anywhere in the three produces a sum that does not balance, and that is visible
+   * without anyone re-reading the scan. It is rate-independent, so it survived VAT
+   * going from 17% to 18% in January 2025.
+   */
+  amountsMismatch: boolean;
+  /** Field keys an accountant has corrected by hand — never overwritten by a re-run. */
+  correctedFields: string[];
+  /** Set when extraction was attempted and failed; null on success. */
+  error: string | null;
 }
 
 export type ErrorCode =
@@ -346,6 +381,8 @@ export interface DocumentDoc {
    */
   searchTokens: string[];
   extracted: ExtractedFields;
+  /** Absent until extraction has run at least once. */
+  extraction?: ExtractionMeta | null;
   error: DocError | null;
 
   // ── time ──

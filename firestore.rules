@@ -109,11 +109,16 @@ service cloud.firestore {
       // statusActorUid is client-written but PINNED to the caller's own uid: that is
       // what lets the audit trail name a real person instead of recording every change
       // as `system`. An accountant cannot attribute their action to a colleague.
+      // `extraction` is writable alongside `extracted` because correcting a field has
+      // to record THAT it was corrected: `extraction.correctedFields` is what stops a
+      // later automatic re-read reverting the fix. Splitting them would mean an
+      // accountant's correction survives until the next Retry OCR and then silently
+      // disappears, which is worse than not being able to correct at all.
       allow update: if isAccountant()
         && changedKeys().hasOnly([
              'workflowStatus', 'assignedAccountantUid', 'clientId',
-             'clientNameCache', 'clientMatch', 'extracted', 'updatedAt',
-             'statusActorUid'
+             'clientNameCache', 'clientMatch', 'extracted', 'extraction',
+             'updatedAt', 'statusActorUid'
            ])
         && request.resource.data.workflowStatus in ['pending', 'in_progress', 'processed']
         && (

@@ -1,7 +1,8 @@
-import { doc, serverTimestamp, updateDoc } from 'firebase/firestore';
+import { arrayUnion, doc, serverTimestamp, updateDoc } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '@/lib/firebase';
 import { COLLECTIONS } from '@shared';
+import type { ExtractedFieldSpec } from '@shared';
 import type {
   GetDocumentUrlRequest,
   GetDocumentUrlResponse,
@@ -57,6 +58,53 @@ export const linkIdentifierFn = httpsCallable<LinkIdentifierRequest, LinkIdentif
 
 /** Runs the Gmail poller now instead of waiting for the next five-minute tick. */
 export const pollGmailNowFn = httpsCallable<void, PollGmailResponse>(functions, 'pollGmailNow');
+
+/**
+ * Corrects one extracted field by hand.
+ *
+ * The key is added to `extraction.correctedFields`, which is what stops a later
+ * re-read overwriting it. Without that marker the feature would be actively harmful:
+ * an accountant fixes a total, someone hits Retry OCR a week later, and the correction
+ * silently reverts to the machine's wrong answer with nothing to show it happened.
+ *
+ * Written directly rather than through a callable so the edit lands instantly, the
+ * same reasoning as workflow status. The rules restrict this to accountants and to
+ * these two fields.
+ */
+export async function correctField(
+  docId: string,
+  spec: ExtractedFieldSpec,
+  input: string,
+): Promise<void> {
+  const trimmed = input.trim();
+
+  // An emptied field means "not found", not zero and not empty string — the same
+  // distinction the extractor is careful about.
+  let value: string | number | null = trimmed === '' ? null : trimmed;
+
+  if (spec.kind === 'money' && trimmed !== '') {
+    const n = Number(trimmed.replace(/[^\d.-]/g, ''));
+    if (!Number.isFinite(n)) throw new Error('Enter a number, for example 248.98');
+    value = Math.round(n * 100) / 100;
+  }
+
+  if (spec.kind === 'date' && trimmed !== '') {
+    // Accept what an Israeli accountant will actually type, store canonical ISO.
+    const dmy = trimmed.match(/^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/);
+    const iso = trimmed.match(/^\d{4}-\d{2}-\d{2}$/);
+    if (dmy) {
+      value = `${dmy[3]}-${dmy[2]!.padStart(2, '0')}-${dmy[1]!.padStart(2, '0')}`;
+    } else if (!iso) {
+      throw new Error('Use dd/mm/yyyy, for example 12/03/2026');
+    }
+  }
+
+  await updateDoc(doc(db, COLLECTIONS.documents, docId), {
+    [`extracted.${spec.key}`]: value,
+    'extraction.correctedFields': arrayUnion(spec.key),
+    updatedAt: serverTimestamp(),
+  });
+}
 
 /**
  * Files an unassigned document against a client, or moves it between clients.

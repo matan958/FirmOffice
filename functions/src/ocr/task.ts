@@ -3,6 +3,7 @@ import { logger } from 'firebase-functions';
 import { FieldValue } from 'firebase-admin/firestore';
 import { bucket, db } from '../lib/firebase.js';
 import { extractPdfTextLayer } from './pdfText.js';
+import { runExtraction } from '../extract/run.js';
 import { visionEngine, type OcrEngine } from './vision.js';
 import { writeOcrResult } from './writeResult.js';
 import type { OcrExtraction } from './types.js';
@@ -126,6 +127,14 @@ export async function runOcr(
     // no words in it. Marking it failed would hide it behind an error badge and invite
     // pointless retries of something that will never produce text.
     await writeOcrResult({ docId, extraction, startedAt });
+
+    // Structured fields, in their own try/catch on purpose: the text is what the firm
+    // paid Vision for and what the viewer needs, and losing it because a field parser
+    // was unavailable would be a bad trade. runExtraction records its own failures.
+    await runExtraction(docId).catch((err: unknown) =>
+      logger.error('extract: unexpected throw', { docId, err: String(err) }),
+    );
+
     return 'done';
   } catch (err: unknown) {
     const code = ((err as { ocrCode?: ErrorCode }).ocrCode ?? 'VISION_ERROR') as ErrorCode;

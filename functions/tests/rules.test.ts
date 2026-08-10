@@ -255,6 +255,35 @@ describe('documents — update constraints', () => {
     );
   });
 
+  it('lets an accountant correct an extracted field and mark it corrected', async () => {
+    // Both halves in one write. `extraction.correctedFields` is what stops a later
+    // automatic re-read reverting the fix, so a rule that allowed the value but not
+    // the marker would let corrections vanish on the next Retry OCR.
+    const db = asAccountant();
+    await assertSucceeds(
+      updateDoc(doc(db, 'documents/doc-a'), {
+        'extracted.totalAmount': 248.98,
+        'extraction.correctedFields': ['totalAmount'],
+      }),
+    );
+  });
+
+  it('still denies an accountant rewriting the OCR text', async () => {
+    // `extraction` being writable must not have widened the door to `ocr`.
+    const db = asAccountant();
+    await assertFails(
+      updateDoc(doc(db, 'documents/doc-a'), { 'ocr.fullText': 'rewritten' }),
+    );
+  });
+
+  it('denies a client touching extracted fields', async () => {
+    await assertFails(
+      updateDoc(doc(asClient('user-a', CLIENT_A), 'documents/doc-a'), {
+        'extracted.totalAmount': 1,
+      }),
+    );
+  });
+
   it('denies deletes outright (soft delete is callable-only)', async () => {
     const db = asAccountant();
     await assertFails(updateDoc(doc(db, 'documents/doc-a'), { deletedAt: new Date() }));

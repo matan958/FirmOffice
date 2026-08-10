@@ -179,6 +179,121 @@ export const STORE_ONLY_MIME = [
  */
 export const NEEDS_CONVERSION_MIME = ['image/heic', 'image/heif'] as const;
 
+// ─── Structured field extraction ─────────────────────────────────────────────
+
+export type ExtractedFieldKey =
+  | 'documentType'
+  | 'invoiceNumber'
+  | 'issueDate'
+  | 'vendorName'
+  | 'vendorTaxId'
+  | 'netAmount'
+  | 'vatAmount'
+  | 'totalAmount';
+
+export interface ExtractedFieldSpec {
+  key: ExtractedFieldKey;
+  /** Shown verbatim in the UI. Hebrew, because the documents and the readers are. */
+  label: string;
+  kind: 'text' | 'date' | 'money' | 'id';
+  /** Guidance handed to the model for this one field. */
+  hint: string;
+}
+
+/**
+ * THE field list. This array is the single source of truth for both what the model is
+ * asked to find and what the panel renders, in this order.
+ *
+ * That coupling is the point. "Only the fields I need, in the order I say" is a
+ * configuration question, not a code question — reordering these lines reorders the
+ * panel, and deleting one stops it being extracted at all rather than leaving the
+ * model paying to find something nobody reads.
+ *
+ * Labels are Hebrew and stay Hebrew even though the surrounding UI is English: they
+ * are the exact wording that appears on an Israeli tax document, and an accountant
+ * matching the panel against the scan beside it should be comparing like with like.
+ */
+export const EXTRACTION_FIELDS: readonly ExtractedFieldSpec[] = [
+  {
+    key: 'documentType',
+    label: 'סוג מסמך',
+    kind: 'text',
+    hint: 'The document\'s own Hebrew wording — חשבונית מס, קבלה, חשבונית מס-קבלה, תעודת משלוח. Copy it as printed; do not translate or normalize it.',
+  },
+  {
+    key: 'invoiceNumber',
+    label: 'מספר חשבונית',
+    kind: 'text',
+    hint: 'The document number (מספר / מס\' / אסמכתא). Keep leading zeros and any hyphens exactly as printed — it is an identifier, not a number.',
+  },
+  {
+    key: 'issueDate',
+    label: 'תאריך',
+    kind: 'date',
+    hint: 'Date of issue, as ISO yyyy-mm-dd. Israeli dates are DAY-FIRST: 12/03/2026 is 12 March 2026, never 3 December.',
+  },
+  {
+    key: 'vendorName',
+    label: 'שם הספק',
+    kind: 'text',
+    hint: 'The business ISSUING the document, not the recipient. On a receipt this is the shop. Include the legal suffix (בע"מ) if printed.',
+  },
+  {
+    key: 'vendorTaxId',
+    label: 'ח.פ. / ע.מ.',
+    kind: 'id',
+    hint: 'The ISSUER\'s ח.פ. / ע.מ. / מספר עוסק מורשה. Digits only. If two tax numbers appear, take the one belonging to the issuer, never the customer.',
+  },
+  {
+    key: 'netAmount',
+    label: 'סכום לפני מע"מ',
+    kind: 'money',
+    hint: 'Amount BEFORE VAT (סה"כ לפני מע"מ / סכום חייב). Plain number, no currency symbol and no thousands separators.',
+  },
+  {
+    key: 'vatAmount',
+    label: 'מע"מ ששולם',
+    kind: 'money',
+    hint: 'The VAT amount itself (מע"מ), not the percentage rate. If the line reads "מע"מ 18%  37.98", this is 37.98.',
+  },
+  {
+    key: 'totalAmount',
+    label: 'סה"כ לתשלום',
+    kind: 'money',
+    hint: 'Final amount payable including VAT (סה"כ לתשלום / לתשלום / סה"כ כולל מע"מ).',
+  },
+];
+
+/**
+ * Extracted but never given a row of its own.
+ *
+ * The firm asked for eight fields and gets eight. Currency is still read, because
+ * rendering ₪ against a dollar invoice would be a quiet, expensive lie — so it is
+ * carried as the symbol on the amounts rather than as another line to read past.
+ */
+export const DEFAULT_CURRENCY = 'ILS';
+
+export const CURRENCY_SYMBOL: Record<string, string> = {
+  ILS: '₪',
+  USD: '$',
+  EUR: '€',
+  GBP: '£',
+};
+
+/**
+ * Tolerance for the net + VAT = total check, in currency units.
+ *
+ * The check itself is rate-independent, which is why it is the one worth making:
+ * Israeli VAT moved from 17% to 18% on 1 January 2025, so a hardcoded rate would
+ * mis-flag every older document, but the addition has to hold whatever the rate.
+ * Two agorot absorbs per-line rounding on a long receipt.
+ */
+export const AMOUNT_RECONCILE_TOLERANCE = 0.02;
+
+/** Vertex AI, validated against the real endpoint on 2026-08-10. */
+export const VERTEX_LOCATION = 'us-central1';
+export const VERTEX_MODEL = 'gemini-2.5-flash';
+
 // ─── Client mapping ──────────────────────────────────────────────────────────
 
 /**
