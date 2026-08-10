@@ -18,21 +18,16 @@ Proven end to end on `firmoffice-9b247` on 2026-08-08: magic-byte sniffing, SHA-
 duplicate detection, the free PDF text-layer path, search tokens, the pages
 subcollection, Cloud Tasks dispatch with retry, and nested metrics counters.
 
-**Still unproven against Google's own services** — written and unit-tested is a
-different claim from "has run once":
+**Verified end to end on the live project, 2026-08-10.** A client uploaded a document
+through the portal; Cloud Vision read it; an accountant opened it and saw the original
+beside the extracted text. That closes the two things that had been configured but
+never exercised — **Cloud Vision** and **signed-URL previews** (`getDocumentUrl`,
+whose IAM signing grant and bucket CORS produce errors naming neither when absent).
 
-1. **Cloud Vision.** Every test document so far has been a digital-native PDF, which
-   the text-layer path handles without calling Vision at all, so the scanned-image
-   path has never made a real request. Upload a phone photo of a receipt to close
-   this. Two bugs on that path were found by reading it (see `ocr/vision.ts`) and
-   there may be more.
-2. **Signed-URL previews** (`getDocumentUrl`) — deployed, grant and CORS verified, but
-   no preview has been fetched. These are precisely the settings whose absence
-   produces errors naming neither IAM nor CORS.
-3. **The whole Gmail channel** (M4) is built and unit-tested but **not deployed**: its
-   functions declare Secret Manager secrets that do not exist yet, and a deploy fails
-   outright on a declared secret with no version. See
-   [Connecting Gmail](#connecting-gmail-m4).
+**Still unproven:** the whole **Gmail channel** (M4) is built and unit-tested but
+**not deployed** — its functions declare Secret Manager secrets that do not exist yet,
+and a deploy fails outright on a declared secret with no version. See
+[Connecting Gmail](#connecting-gmail-m4).
 
 ---
 
