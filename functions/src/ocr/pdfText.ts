@@ -1,6 +1,7 @@
 import { extractText, getDocumentProxy } from 'unpdf';
 import { logger } from 'firebase-functions';
 import { joinPages, type OcrExtraction, type OcrPage } from './types.js';
+import { looksScanned, surveyImages } from './pdfImages.js';
 
 /**
  * The free path: pull the existing text layer out of a digital-native PDF.
@@ -20,12 +21,18 @@ import { joinPages, type OcrExtraction, type OcrPage } from './types.js';
  * or a stray watermark on an otherwise image-only document. Treating that as a
  * successful extraction would leave the real content unsearchable and nobody would
  * know, which is worse than paying for OCR.
+ *
+ * This is a floor, not the whole test. See the image survey below: a character count
+ * alone cannot tell a sparse invoice from a scan wrapped in boilerplate, and it was
+ * this threshold passing at 148 characters that lost a real receipt.
  */
 const MIN_CHARS_PER_PAGE = 100;
 
 export interface PdfProbe {
   pageCount: number;
   extraction: OcrExtraction | null;
+  /** Why the text layer was rejected, when it was. For logs and for tests. */
+  reason?: 'scanned' | 'too-little-text';
 }
 
 /**
@@ -57,16 +64,42 @@ export async function extractPdfTextLayer(bytes: Uint8Array): Promise<PdfProbe> 
 
   const fullText = joinPages(pages);
   const chars = fullText.length;
-  const enough = totalPages > 0 && chars / totalPages >= MIN_CHARS_PER_PAGE;
+
+  // Does the document carry a scanned page? If so the text layer describes at most a
+  // wrapper around it, and trusting it silently discards the actual document. This
+  // check comes FIRST and overrides the character count, because the failing case had
+  // plenty of characters — they were just the wrong ones.
+  const survey = await surveyImages(pdf).catch((err: unknown) => {
+    // Never let a survey failure block extraction: a missing survey degrades to the
+    // old character-count behaviour rather than failing the document outright.
+    logger.warn('pdf image survey failed', { err: String(err) });
+    return { maxImagePixels: 0, imageCount: 0 };
+  });
+
+  const scanned = looksScanned(survey);
+  const enoughText = totalPages > 0 && chars / totalPages >= MIN_CHARS_PER_PAGE;
 
   logger.debug('pdf text layer probe', {
     totalPages,
     chars,
     perPage: totalPages ? Math.round(chars / totalPages) : 0,
-    enough,
+    maxImagePixels: survey.maxImagePixels,
+    imageCount: survey.imageCount,
+    scanned,
+    enoughText,
   });
 
-  if (!enough) return { pageCount: totalPages, extraction: null };
+  if (scanned) {
+    logger.info('pdf carries a scanned page — sending to Vision despite its text layer', {
+      chars,
+      maxImagePixels: survey.maxImagePixels,
+    });
+    return { pageCount: totalPages, extraction: null, reason: 'scanned' };
+  }
+
+  if (!enoughText) {
+    return { pageCount: totalPages, extraction: null, reason: 'too-little-text' };
+  }
 
   return {
     pageCount: totalPages,
