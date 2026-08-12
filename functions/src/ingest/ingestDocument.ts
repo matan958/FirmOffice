@@ -49,7 +49,13 @@ export interface IngestInput {
   contentType: string;
   channel: Channel;
   source: DocumentSource;
-  /** When the CLIENT sent it — the email Date header, not now. */
+  /**
+   * When the CLIENT sent it, not when we ingested it.
+   *
+   * For mail this is Gmail's `internalDate` — deliberately NOT the `Date:` header,
+   * which is written by the sender's machine: a skewed clock dates a message in 2030
+   * and pins it to the top of an inbox sorted by receivedAt, permanently.
+   */
   receivedAt: Date;
   clientId: string | null;
   clientName: string | null;
@@ -66,15 +72,45 @@ export type IngestOutcome =
   /** The ledger already had this externalId — a redelivery, not a new document. */
   | { status: 'already_ingested'; docId: string };
 
+function ledgerDoc(channel: Channel, externalId: string) {
+  return db().doc(
+    `${COLLECTIONS.processedMessages}/${processedMessageKey(channel, externalId)}`,
+  );
+}
+
+/**
+ * Have we already ingested this message part?
+ *
+ * Exported so a channel adapter can ask BEFORE it downloads the bytes. The pre-check
+ * inside ingestDocument comes too late for that: the poller re-scans a two-day window
+ * every five minutes, and a message that cannot be labelled — a missing scope, a label
+ * deleted in Gmail — is re-selected on every one of those runs. Without this the whole
+ * attachment is pulled from Gmail each time only to be dropped, for as long as the
+ * message stays inside the window.
+ *
+ * Not a substitute for the ledger `create()` in the batch below, which is the real
+ * guard against two concurrent runs. This is an optimization, and treats a read failure
+ * as "not seen" so a Firestore blip can never make us skip a real document.
+ */
+export async function alreadyIngested(
+  channel: Channel,
+  externalId: string,
+): Promise<boolean> {
+  const snap = await ledgerDoc(channel, externalId)
+    .get()
+    .catch(() => null);
+  return snap?.exists ?? false;
+}
+
 export async function ingestDocument(input: IngestInput): Promise<IngestOutcome> {
   const ledgerKey = input.externalId
     ? processedMessageKey(input.channel, input.externalId)
     : null;
-  const ledgerRef = ledgerKey ? db().doc(`${COLLECTIONS.processedMessages}/${ledgerKey}`) : null;
+  const ledgerRef = input.externalId ? ledgerDoc(input.channel, input.externalId) : null;
 
   // Cheap pre-check. The batch's create() below is the real guard — this only avoids
-  // downloading and re-uploading megabytes for a message we already hold, which on a
-  // poller that re-scans a two-day window is the overwhelmingly common case.
+  // re-uploading megabytes for a message we already hold. Callers that would have to
+  // FETCH those megabytes first should call alreadyIngested() before doing so.
   if (ledgerRef) {
     const existing = await ledgerRef.get();
     if (existing.exists) {

@@ -95,14 +95,30 @@ export async function getMailbox(): Promise<string> {
   return address.toLowerCase();
 }
 
-export async function listMessageIds(query: string, maxResults: number): Promise<string[]> {
-  const page = await call<{ messages?: { id: string }[] }>('/messages', {
+export interface MessagePage {
+  ids: string[];
+  /**
+   * Gmail says there is at least one more page behind this one.
+   *
+   * Reported rather than followed. One page per run is deliberate — the lookback window
+   * plus the cap bound each run, and a poller that falls behind catches up on the next
+   * tick instead of growing unbounded inside a 9-minute timeout. But "there is more
+   * waiting" has to LEAVE this function, because the state it hides is the dangerous
+   * one: if the messages filling the page cannot be labelled, they refill it on every
+   * run for ever and mail behind them is never reached. Silently dropping the token
+   * makes a starved queue indistinguishable from an empty one.
+   */
+  hasMore: boolean;
+}
+
+export async function listMessageIds(query: string, maxResults: number): Promise<MessagePage> {
+  const page = await call<{ messages?: { id: string }[]; nextPageToken?: string }>('/messages', {
     params: { q: query, maxResults: String(maxResults) },
   });
-  // Deliberately one page only. The lookback window plus the cap bound each run, and
-  // a run that falls behind catches up on the next tick rather than growing unbounded
-  // inside a single 9-minute function timeout.
-  return (page.messages ?? []).map((m) => m.id);
+  return {
+    ids: (page.messages ?? []).map((m) => m.id),
+    hasMore: Boolean(page.nextPageToken),
+  };
 }
 
 export async function getMessage(id: string): Promise<GmailMessage> {
@@ -155,10 +171,26 @@ export async function ensureLabel(name: string): Promise<string> {
 }
 
 export async function addLabel(messageId: string, labelId: string): Promise<void> {
-  await call(`/messages/${messageId}/modify`, {
-    method: 'POST',
-    body: { addLabelIds: [labelId] },
-  });
+  try {
+    await call(`/messages/${messageId}/modify`, {
+      method: 'POST',
+      body: { addLabelIds: [labelId] },
+    });
+  } catch (err: unknown) {
+    // Drop the cache before rethrowing. `labelCache` is a module global on a warm
+    // instance, so a label deleted or renamed in Gmail leaves a dead ID here that
+    // fails EVERY subsequent addLabel until the instance recycles — and an unlabelled
+    // message is re-selected by the poller's query on every run for the whole lookback
+    // window. That is how one deleted label starves the queue: the failing messages
+    // refill the page each time and new mail is never reached.
+    logger.warn('gmail: addLabel failed, dropping label cache', {
+      messageId,
+      labelId,
+      err: String(err),
+    });
+    labelCache = undefined;
+    throw err;
+  }
 }
 
 /** Test seam: forces the next call to re-resolve labels and re-authenticate. */

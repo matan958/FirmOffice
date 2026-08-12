@@ -291,10 +291,24 @@ things a week later.**
    npx firebase functions:secrets:set GMAIL_CLIENT_SECRET
    npx firebase functions:secrets:set GMAIL_REFRESH_TOKEN
    ```
-7. **Deploy**, then open the Inbox. The strip under the metrics bar shows the mailbox
+7. **Set the Firestore TTL policy** on `processedMessages`, keyed on `expiresAt`
+   (console only). That collection gets one row per attachment ever ingested and grows
+   without bound until the policy exists.
+8. **Uncomment the export** in `functions/src/index.ts` — it is commented out precisely
+   because the secrets above did not exist yet, and a deploy fails outright on a
+   declared secret with no version:
+   ```ts
+   export { pollGmail, pollGmailNow } from './gmail/poll.js';
+   ```
+   > Skip this and every other step still succeeds, the deploy is clean, and nothing
+   > whatsoever happens — which is the same failure this whole channel is built to make
+   > visible, so it should not be the one the instructions cause.
+9. **Deploy**, then open the Inbox. The strip under the metrics bar shows the mailbox
    the token belongs to and when the poller last completed a run; admins get a
-   **Check now** button so you need not wait for a tick.
-8. **Give a client their drop address** from the Clients page and mail something to it.
+   **Check now** button so you need not wait for a tick. Until the first successful run
+   the strip is hidden entirely and the Clients page shows "pending — mail ingestion not
+   connected" against every drop address, so the strip appearing is the real proof.
+10. **Give a client their drop address** from the Clients page and mail something to it.
 
 To rotate or repoint the mailbox, re-run steps 5–6 and redeploy. The poller re-reads
 the account's own address on every run, so the drop addresses shown in the UI follow

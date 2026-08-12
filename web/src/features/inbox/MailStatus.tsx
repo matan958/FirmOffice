@@ -29,6 +29,14 @@ export default function MailStatus({ canPoll }: { canPoll: boolean }) {
   const age = minutesSinceSuccess(state);
   const stale = age === null || age > STALE_MINUTES;
 
+  // The other way this stops working, and the one a timestamp cannot show. Messages
+  // that fail are labelled for attention and drop out of the query; messages that fail
+  // BEFORE they can be labelled do not, so they refill the page on every run and mail
+  // behind them is never reached. The poller keeps completing, `lastSuccessAt` keeps
+  // moving, and the inbox simply stops growing.
+  const starved = (state.lastRunFailures ?? 0) > 0 && state.lastRunHadMore === true;
+  const alarm = stale || starved;
+
   async function pollNow() {
     setBusy(true);
     setResult(null);
@@ -39,7 +47,10 @@ export default function MailStatus({ canPoll }: { canPoll: boolean }) {
         d.ok
           ? `Checked ${d.messagesSeen} message${d.messagesSeen === 1 ? '' : 's'} · ` +
             `${d.attachmentsIngested} new · ${d.skippedDuplicates} already held` +
-            (d.skippedInline > 0 ? ` · ${d.skippedInline} inline images ignored` : '')
+            (d.skippedInline > 0 ? ` · ${d.skippedInline} inline images ignored` : '') +
+            (d.skippedEmpty > 0 ? ` · ${d.skippedEmpty} empty` : '') +
+            (d.messagesFailed > 0 ? ` · ${d.messagesFailed} failed` : '') +
+            (d.hasMore ? ' · more waiting' : '')
           : `Failed: ${d.errors[0] ?? 'unknown error'}`,
       );
     } catch (err: unknown) {
@@ -52,7 +63,7 @@ export default function MailStatus({ canPoll }: { canPoll: boolean }) {
   return (
     <div
       className={`flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border px-3 py-2 text-xs ${
-        stale ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-ink-200 text-ink-600'
+        alarm ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-ink-200 text-ink-600'
       }`}
     >
       <span className="font-medium">Mail ingestion</span>
@@ -70,6 +81,12 @@ export default function MailStatus({ canPoll }: { canPoll: boolean }) {
             ? '· last checked just now'
             : `· last checked ${age} min ago`}
       </span>
+
+      {starved && (
+        <span className="font-medium" title="Messages are failing before they can be labelled, so they are re-read every run and newer mail is never reached.">
+          · {state.lastRunFailures} failing and more waiting — mail is not getting through
+        </span>
+      )}
 
       {state.lastError && (
         <span className="max-w-md truncate" title={state.lastError}>

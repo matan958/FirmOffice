@@ -549,6 +549,19 @@ export interface IngestStateDoc {
   consecutiveFailures: number;
   /** Cumulative, for a sanity check against the documents collection. */
   totalIngested: number;
+  /**
+   * How many messages failed in the LAST run, and whether Gmail said more were waiting.
+   *
+   * Together these describe the one way this poller can stop working while looking
+   * perfectly healthy. A run that completes is recorded as a success even if every
+   * message in it failed — which is correct, the run did complete — so on its own
+   * `lastSuccessAt` cannot distinguish "nothing to do" from "the same broken messages
+   * fill the page every time and nothing behind them is ever reached". A full page that
+   * yields nothing, run after run, is a starved queue, and it needs to be visible as
+   * one rather than inferred from an inbox that stopped growing.
+   */
+  lastRunFailures?: number;
+  lastRunHadMore?: boolean;
 }
 
 /**
@@ -713,6 +726,12 @@ export interface PollGmailResponse {
   attachmentsIngested: number;
   skippedDuplicates: number;
   skippedInline: number;
+  /** Attachments Gmail returned as zero bytes. Counted so they are not invisible. */
+  skippedEmpty: number;
+  /** Messages that threw and were labelled for attention. */
+  messagesFailed: number;
+  /** Gmail had more waiting than this run's cap — see IngestStateDoc.lastRunHadMore. */
+  hasMore: boolean;
   errors: string[];
 }
 
