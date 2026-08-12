@@ -53,11 +53,23 @@ Get them from https://console.cloud.google.com/apis/credentials :
   process.exit(1);
 }
 
-/** Opens a URL in the default browser, per platform. Best effort — the URL is printed too. */
+/**
+ * Opens a URL in the default browser, per platform. Best effort — the URL is printed too.
+ *
+ * The `^&` escaping on Windows is not cosmetic. `cmd /c` re-parses everything after it
+ * as a command line, and `&` is cmd's command separator — so an unescaped consent URL
+ * is TRUNCATED at the first parameter boundary. The browser then opens
+ * `…/auth?client_id=…` with no response_type, no redirect_uri and no scope, and Google
+ * answers with a bare "400. That's an error." that says nothing about the cause, while
+ * cmd separately tries to execute `redirect_uri=…` as a program.
+ *
+ * The empty '' before the URL is also load-bearing: `start` reads its first quoted
+ * argument as a window title, so without a placeholder it would swallow the URL.
+ */
 function openBrowser(url) {
   const [cmd, args] =
     process.platform === 'win32'
-      ? ['cmd', ['/c', 'start', '', url]]
+      ? ['cmd', ['/c', 'start', '', url.replace(/&/g, '^&')]]
       : process.platform === 'darwin'
         ? ['open', [url]]
         : ['xdg-open', [url]];
@@ -126,7 +138,8 @@ const consentUrl =
   }).toString();
 
 console.log('\nOpening the Google consent screen.');
-console.log('If it does not open, paste this into a browser:\n');
+console.log('If it does not open — OR if Google shows a bare "400. That\'s an error." —');
+console.log('paste this whole URL into a browser instead:\n');
 console.log(`  ${consentUrl}\n`);
 console.log('Sign in as the mailbox that receives client documents.');
 console.log('If you see "Google hasn\'t verified this app": Advanced -> Go to ... (unsafe).');
