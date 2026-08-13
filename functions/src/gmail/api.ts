@@ -35,11 +35,23 @@ const BASE = 'https://gmail.googleapis.com/gmail/v1/users/me';
  */
 export class GmailAuthError extends Error {
   constructor(cause: string) {
+    // Two different faults with two different remedies, and OAuth names them almost
+    // identically. `invalid_grant` is a dead refresh token. `invalid_client` is the
+    // ID/secret pair being wrong, where the token is fine and re-minting it — the
+    // obvious move, and the one the old single message sent people towards — changes
+    // nothing at all.
+    const clientProblem = /invalid_client|unauthorized_client/i.test(cause);
     super(
-      `Gmail refused the stored refresh token (${cause}). The token is revoked or ` +
-        `expired. If the OAuth consent screen is still in "Testing", Google expires ` +
-        `refresh tokens after 7 days — set it to "In production" and re-run ` +
-        `scripts/gmail-auth.mjs to mint a new one.`,
+      clientProblem
+        ? `Gmail rejected the OAuth CLIENT (${cause}). GMAIL_CLIENT_ID and ` +
+            `GMAIL_CLIENT_SECRET do not match a client in this project. The refresh ` +
+            `token is not the problem and re-minting it will not help. Re-set those two ` +
+            `secrets, then REDEPLOY — a deploy pins an exact secret version, so a new ` +
+            `version has no effect until the functions are deployed again.`
+        : `Gmail refused the stored refresh TOKEN (${cause}). It is revoked or expired. ` +
+            `If the OAuth consent screen is still in "Testing", Google expires refresh ` +
+            `tokens after 7 days — set it to "In production" and re-run ` +
+            `scripts/gmail-auth.mjs to mint a new one.`,
     );
     this.name = 'GmailAuthError';
   }
@@ -72,7 +84,7 @@ async function call<T>(
     return res.data;
   } catch (err: unknown) {
     const message = String((err as Error)?.message ?? err);
-    if (/invalid_grant|invalid_request|unauthorized_client/i.test(message)) {
+    if (/invalid_grant|invalid_request|invalid_client|unauthorized_client/i.test(message)) {
       throw new GmailAuthError(message);
     }
     throw err;
