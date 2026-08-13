@@ -99,7 +99,7 @@ function validate(type: IdentifierType, value: string): void {
  * index a computed value, and denormalizing one onto every document to serve an
  * occasional backfill would be the wrong trade.
  */
-async function backfill(
+export async function backfill(
   type: IdentifierType,
   value: string,
   clientId: string,

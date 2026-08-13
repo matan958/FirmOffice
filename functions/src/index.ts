@@ -62,6 +62,7 @@ export { reclassifyClient } from './admin/reclassifyClient.js';
 // ─────────────────────────────────────────────────────────────────────────────
 
 export { linkIdentifier } from './admin/linkIdentifier.js';
+export { setClientEmail } from './admin/setClientEmail.js';
 
 /*
  * These declare `secrets: [GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN]`,

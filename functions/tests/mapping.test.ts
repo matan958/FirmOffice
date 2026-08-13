@@ -197,7 +197,7 @@ describe('subjectCode / domainOf', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('resolveClient', () => {
-  it('rung 1 — a plus-address alias files at full confidence', async () => {
+  it('rung 1 — a plus-address alias SUGGESTS but does not file', async () => {
     const lookup = lookupOver({
       [identifierKey('alias', 'acme7k2')]: identifier({
         type: 'alias', value: 'acme7k2', clientId: 'client-acme', confidence: 1,
@@ -210,13 +210,17 @@ describe('resolveClient', () => {
       { ingestMailbox: MAILBOX },
     );
 
-    expect(result.clientId).toBe('client-acme');
+    // The firm's rule: a client is their registered email address, and nothing else
+    // files a document on its own. The alias still identifies a strong candidate, so it
+    // is offered — it just cannot decide.
+    expect(result.clientId).toBeNull();
+    expect(result.suggestedClientId).toBe('client-acme');
     expect(result.method).toBe('alias');
     expect(result.confidence).toBe(1);
     expect(result.aliasTag).toBe('acme7k2');
   });
 
-  it('rung 1 survives a failing DKIM, because the alias is not a sender claim', async () => {
+  it('rung 1 is still not auth-downgraded, because the alias is not a sender claim', async () => {
     // The evidence is the address the message was DELIVERED to. A forged `From:`
     // says nothing about it, so downgrading here would only punish real clients.
     const lookup = lookupOver({
@@ -231,7 +235,7 @@ describe('resolveClient', () => {
       { ingestMailbox: MAILBOX },
     );
 
-    expect(result.clientId).toBe('client-acme');
+    expect(result.suggestedClientId).toBe('client-acme');
     expect(result.authDowngraded).toBe(false);
   });
 
@@ -304,7 +308,7 @@ describe('resolveClient', () => {
     expect(result.clientId).toBe('client-acme');
   });
 
-  it('rung 5 — a corporate domain files at 0.60', async () => {
+  it('rung 5 — a corporate domain suggests, never files', async () => {
     const lookup = lookupOver({
       [identifierKey('domain', 'acme.com')]: identifier({
         type: 'domain', value: 'acme.com', clientId: 'client-acme', confidence: 0.6,
@@ -316,7 +320,11 @@ describe('resolveClient', () => {
       lookup,
       { ingestMailbox: MAILBOX },
     );
-    expect(result).toMatchObject({ clientId: 'client-acme', method: 'domain' });
+    expect(result).toMatchObject({
+      clientId: null,
+      suggestedClientId: 'client-acme',
+      method: 'domain',
+    });
   });
 
   it('NEVER domain-matches a public mailbox provider', async () => {
@@ -358,7 +366,10 @@ describe('resolveClient', () => {
       { ingestMailbox: MAILBOX },
     );
 
-    expect(result.clientId).toBe('client-globex');
+    // Still about ORDERING: the wrong rung winning would name the wrong client, which
+    // matters just as much for a suggestion an accountant is about to accept in one click.
+    expect(result.suggestedClientId).toBe('client-globex');
+    expect(result.clientId).toBeNull();
     expect(result.method).toBe('subjectCode');
   });
 
@@ -405,7 +416,8 @@ describe('resolveClient', () => {
     );
 
     expect(result.method).toBe('forwarded');
-    expect(result.clientId).toBe('client-acme');
+    expect(result.clientId).toBeNull();
+    expect(result.suggestedClientId).toBe('client-acme');
     // The identifier's own 0.95 must not leak into a 0.70 rung.
     expect(result.confidence).toBe(0.7);
   });
@@ -455,5 +467,70 @@ describe('resolveClient', () => {
       suggestedClientId: null,
       matchedIdentifier: null,
     });
+  });
+});
+
+describe('the assign rule — a client IS their registered email address', () => {
+  /**
+   * The rule stated once, rather than inferred from five scattered assertions.
+   *
+   * Every rung may NAME a client; exactly one may FILE against it. Expressing this as a
+   * confidence threshold instead would work today and rot silently — the alias rung
+   * scores 1.00 and would sail over any floor, and retuning any number in
+   * MATCH_CONFIDENCE would quietly re-enable auto-filing on a rung nobody reconsidered.
+   */
+  const CLIENT = 'client-acme';
+
+  const rows = {
+    [identifierKey('email', 'billing@acme.com')]: identifier({
+      type: 'email', value: 'billing@acme.com', clientId: CLIENT, confidence: 0.95,
+    }),
+    [identifierKey('alias', 'acme7k2')]: identifier({
+      type: 'alias', value: 'acme7k2', clientId: CLIENT, confidence: 1,
+    }),
+    [identifierKey('subjectCode', 'acme-1')]: identifier({
+      type: 'subjectCode', value: 'acme-1', clientId: CLIENT, confidence: 0.85,
+    }),
+    [identifierKey('domain', 'acme.com')]: identifier({
+      type: 'domain', value: 'acme.com', clientId: CLIENT, confidence: 0.6,
+    }),
+  };
+
+  it('files when the sender IS the registered address', async () => {
+    const result = await resolveClient(
+      message({ from: 'billing@acme.com' }),
+      lookupOver(rows),
+      { ingestMailbox: MAILBOX },
+    );
+    expect(result.clientId).toBe(CLIENT);
+    expect(result.method).toBe('email');
+  });
+
+  it.each([
+    ['alias',       { from: 'stranger@nowhere.example', recipients: [`firmoffice.docs+acme7k2@gmail.com`] }],
+    ['subjectCode', { from: 'stranger@nowhere.example', subject: 'docs [ACME-1]' }],
+    ['domain',      { from: 'someone.else@acme.com' }],
+  ])('does not file on a %s match — it only suggests', async (method, over) => {
+    const result = await resolveClient(message(over), lookupOver(rows), {
+      ingestMailbox: MAILBOX,
+    });
+
+    expect(result.method).toBe(method);
+    expect(result.clientId).toBeNull();
+    expect(result.suggestedClientId).toBe(CLIENT);
+  });
+
+  it('does not file a spoofed message even from the registered address', async () => {
+    // `assigns` is necessary but not sufficient. An exact-address match whose DKIM AND
+    // SPF both failed is exactly what a forged invoice looks like, and it scores 0.48.
+    const result = await resolveClient(
+      message({ from: 'billing@acme.com', auth: FAIL }),
+      lookupOver(rows),
+      { ingestMailbox: MAILBOX },
+    );
+
+    expect(result.clientId).toBeNull();
+    expect(result.suggestedClientId).toBe(CLIENT);
+    expect(result.authDowngraded).toBe(true);
   });
 });

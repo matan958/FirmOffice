@@ -11,7 +11,7 @@ arrives in the Client Portal, and is validated, hashed, de-duplicated, OCR'd and
 indexed, with live counters and an audit trail. Accountants work it from an Inbox with
 the original and the extracted text side by side.
 
-All 11 functions are deployed to `us-east1`. Bucket CORS, the IAM URL-signing grant
+All 15 functions are deployed to `us-east1`. Bucket CORS, the IAM URL-signing grant
 and the Vision API were re-verified against the project at deploy time.
 
 Proven end to end on `firmoffice-9b247` on 2026-08-08: magic-byte sniffing, SHA-256
@@ -24,9 +24,14 @@ beside the extracted text. That closes the two things that had been configured b
 never exercised — **Cloud Vision** and **signed-URL previews** (`getDocumentUrl`,
 whose IAM signing grant and bucket CORS produce errors naming neither when absent).
 
-**Still unproven:** the whole **Gmail channel** (M4) is built and unit-tested but
-**not deployed** — its functions declare Secret Manager secrets that do not exist yet,
-and a deploy fails outright on a declared secret with no version. See
+**Gmail ingestion is live, 2026-08-13.** The poller runs every five minutes against the
+firm's mailbox and completes cleanly. Getting there cost four hours almost entirely to
+one thing: a client secret pasted twice into Secret Manager. It began with `GOCSPX-`, so
+every shape check passed it, and a doubled secret is exactly as invalid as a wrong one —
+Google reports both as `invalid_client`. Length was the only signal that separated them
+and nothing was looking at length. The client now logs, once per cold start, the
+credentials it actually loaded: the client ID whole (it is public — it travels in every
+consent URL), and the other two by length and prefix. See
 [Connecting Gmail](#connecting-gmail-m4).
 
 ---
@@ -226,22 +231,31 @@ spine the portal uses.
 
 ### How a message finds its client
 
-Rungs are tried strongest first; the first hit wins and the document records which
-rung matched and how confident it was.
+**A client IS their registered email address.** Mail from it files itself; mail from
+anywhere else waits in Unassigned until a human decides. That is the firm's rule and it
+is enforced as a flag on the rung — `Hit.assigns` — rather than as a confidence
+threshold, because a threshold expressing the same thing would break silently the moment
+anyone retuned a number in `MATCH_CONFIDENCE`.
 
-| # | Rung | Confidence | Notes |
-|---|---|---|---|
-| 1 | **Drop address** — `you+acme7k2@gmail.com` | 1.00 | Per-client. The only rung a forged sender cannot influence. |
-| 2 | Exact sender address | 0.95 | Normalized: lowercased, `+tag` stripped, dots stripped for Gmail only |
-| 3 | Subject code — `[ACME-123]` | 0.85 | |
-| 4 | Forwarded original sender | 0.70 | Parsed from the quoted `From:` when an accountant forwards a client's mail |
-| 5 | Sender domain | 0.60 | Corporate clients with several staff. **Never** a public mailbox provider |
-| 6 | Reply-To | 0.50 | Below the auto-file floor — can only ever suggest |
+The other rungs still run. They cannot file, but they can NAME a candidate, which is the
+difference between "Unassigned, good luck" and a one-click *"file under Acme Ltd?"*.
 
-Below **0.60** nothing is filed automatically. The document lands in Unassigned with
-its best candidate attached, so filing it is one click rather than a search. Guessing
-into `clientId` is not a smaller error than leaving it unassigned; it is a larger one,
-because nobody goes looking.
+| # | Rung | Confidence | Files? | Notes |
+|---|---|---|---|---|
+| 1 | Drop address — `you+acme7k2@gmail.com` | 1.00 | suggests | Not surfaced in the UI; the addresses are no longer handed out |
+| 2 | **Exact sender address** | 0.95 | **FILES** | Normalized: lowercased, `+tag` stripped, dots stripped for Gmail only |
+| 3 | Subject code — `[ACME-123]` | 0.85 | suggests | |
+| 4 | Forwarded original sender | 0.70 | suggests | Parsed from the quoted `From:` when an accountant forwards a client's mail |
+| 5 | Sender domain | 0.60 | suggests | Corporate clients with several staff. **Never** a public mailbox provider |
+| 6 | Reply-To | 0.50 | suggests | |
+
+Rungs are tried strongest first and the first hit wins, so ordering still matters even
+though only one can file: the rung that wins is the one whose candidate gets offered,
+and offering the wrong client is a mistake an accountant can accept in one click.
+
+The 0.60 floor still applies **on top of** the flag. An exact-address match whose DKIM
+and SPF both failed scores 0.48 and drops to a suggestion — which is exactly what a
+forged invoice should do.
 
 > **The plan's table ordered these differently** — domain (0.60) above subject code
 > (0.85) and forwarded (0.70). With "stop at the first hit" that lets a weak domain
@@ -250,11 +264,11 @@ because nobody goes looking.
 
 **Sender authentication.** `From:` is plain text anyone can write. If Gmail's own
 `Authentication-Results` header says both DKIM and SPF failed, sender-derived rungs are
-halved, which drops every one of them below the auto-file floor. DKIM and SPF are
-treated as alternatives rather than both being required: plenty of small businesses
-never sign with DKIM, and exiling them to Unassigned permanently trains accountants to
-click through the queue without reading it. The drop address and subject code are not
-gated on this — they are tokens the firm issued, not identity claims.
+halved, which drops it below the auto-file floor. DKIM and SPF are treated as
+alternatives rather than both being required: plenty of small businesses never sign with
+DKIM, and exiling them to Unassigned permanently trains accountants to click through the
+queue without reading it. The drop address and subject code are not gated on this — they
+are tokens the firm issued, not identity claims — but neither can file anyway.
 
 **The learning loop.** Filing an unassigned document offers *"always file mail from
 john@acme.com under Acme Ltd"*, which creates the identifier and re-files everything
@@ -307,12 +321,14 @@ things a week later.**
    the token belongs to and when the poller last completed a run; admins get a
    **Check now** button so you need not wait for a tick. Until the first successful run
    the strip is hidden entirely and the Clients page shows "pending — mail ingestion not
-   connected" against every drop address, so the strip appearing is the real proof.
-10. **Give a client their drop address** from the Clients page and mail something to it.
+   connected", so the strip appearing is the real proof.
+10. **Set each client's email** on the Clients page. That address is the only thing that
+    files a document automatically — a client with none will have every message land in
+    Unassigned, with nothing on screen explaining why, which is why the column shows an
+    amber "not set — mail will not file" rather than a blank.
 
-To rotate or repoint the mailbox, re-run steps 5–6 and redeploy. The poller re-reads
-the account's own address on every run, so the drop addresses shown in the UI follow
-automatically.
+To rotate or repoint the mailbox, re-run steps 5–6 and redeploy. The poller re-reads the
+account's own address on every run, so nothing about the mailbox is configured twice.
 
 ### Operational notes
 

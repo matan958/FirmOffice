@@ -14,6 +14,8 @@ import type {
   ReclassifyClientResponse,
   RetryOcrRequest,
   RetryOcrResponse,
+  SetClientEmailRequest,
+  SetClientEmailResponse,
   WorkflowStatus,
 } from '@shared';
 
@@ -57,6 +59,18 @@ export async function setWorkflowStatus(
 export const linkIdentifierFn = httpsCallable<LinkIdentifierRequest, LinkIdentifierResponse>(
   functions,
   'linkIdentifier',
+);
+
+/**
+ * Sets the one address a client's mail is recognised by.
+ *
+ * A callable, because this is three writes that have to agree — the client record, the
+ * old mapping row, and the new one — and because the address being claimed may already
+ * belong to another client, which must be reported rather than quietly taken.
+ */
+export const setClientEmailFn = httpsCallable<SetClientEmailRequest, SetClientEmailResponse>(
+  functions,
+  'setClientEmail',
 );
 
 /** Runs the Gmail poller now instead of waiting for the next five-minute tick. */

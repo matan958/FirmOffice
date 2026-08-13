@@ -23,7 +23,12 @@ import {
  * sender that must NOT domain-match, a forward, a DKIM failure — is unit-testable
  * against synthetic inputs with no emulator and no mailbox.
  *
- * ── Two things this file is careful about ──
+ * ── Three things this file is careful about ──
+ *
+ * **Only the client's own registered address may file a document.** That is the firm's
+ * rule: a client IS their email address. Mail from it is theirs; mail from anywhere
+ * else waits in Unassigned for a human. Every other rung below still runs and can still
+ * name a candidate, but none of them can assign one — see `Hit.assigns`.
  *
  * **It never guesses into `clientId`.** A rung can produce a candidate that is not
  * good enough to file on, and those are returned as `suggestedClientId` with
@@ -99,6 +104,24 @@ interface Hit {
   ceiling: number;
   /** False for rungs whose evidence does not depend on the `From:` header. */
   sensitiveToAuth: boolean;
+  /**
+   * Whether this rung is allowed to file a document at all.
+   *
+   * TRUE ON EXACTLY ONE RUNG: the exact registered sender address. The firm's rule is
+   * that a client is their email address — mail from it is theirs, and mail from
+   * anywhere else is Unassigned until a human says otherwise.
+   *
+   * The other rungs still run, and still produce `suggestedClientId`, because a wrong
+   * guess and no guess are very different costs: filing to the wrong client hides a
+   * document in someone else's folder, while a suggestion on the Unassigned row turns
+   * a search into one click. So they inform; they never decide.
+   *
+   * Deliberately a flag rather than a confidence threshold. Expressing "only email may
+   * assign" by raising AUTO_ASSIGN_MIN_CONFIDENCE above 0.85 would work today and break
+   * silently the moment anyone retunes a number in MATCH_CONFIDENCE — and it would
+   * still let the 1.00 alias rung through.
+   */
+  assigns: boolean;
 }
 
 function ceilingFor(method: ClientMatchMethod): number {
@@ -134,7 +157,11 @@ export async function resolveClient(
   const downgraded = hit.sensitiveToAuth && authFailed(message.auth);
   if (downgraded) confidence *= AUTH_FAIL_FACTOR;
 
-  const assign = confidence >= AUTO_ASSIGN_MIN_CONFIDENCE;
+  // Both conditions, not either. `assigns` is the firm's rule — only a message from a
+  // client's own registered address files itself. The confidence floor still applies on
+  // top of it, which is what stops a spoofed sender from filing: an exact-address match
+  // whose DKIM and SPF both failed scores 0.48 and drops to a suggestion.
+  const assign = hit.assigns && confidence >= AUTO_ASSIGN_MIN_CONFIDENCE;
 
   return {
     clientId: assign ? hit.identifier.clientId : null,
@@ -161,7 +188,12 @@ async function firstHit(
     if (!address) return null;
     const key = identifierKey('email', normalizeEmail(address));
     const identifier = await lookup(key);
-    return identifier ? { method, key, identifier, ceiling, sensitiveToAuth: true } : null;
+    return identifier
+      ? // `assigns` only for the exact-sender rung. `forwarded` and `replyTo` reach this
+        // same helper and read the same `email:` rows, but the address they matched was
+        // recovered from a body or a header rather than being who sent the message.
+        { method, key, identifier, ceiling, sensitiveToAuth: true, assigns: method === 'email' }
+      : null;
   };
 
   // ── 1. Plus-address alias (1.00) ──────────────────────────────────────────
@@ -180,6 +212,7 @@ async function firstHit(
         identifier,
         ceiling: ceilingFor('alias'),
         sensitiveToAuth: false,
+        assigns: false,
       };
     }
   }
@@ -202,6 +235,7 @@ async function firstHit(
         identifier,
         ceiling: ceilingFor('subjectCode'),
         sensitiveToAuth: false,
+        assigns: false,
       };
     }
   }
@@ -232,6 +266,7 @@ async function firstHit(
         identifier,
         ceiling: ceilingFor('domain'),
         sensitiveToAuth: true,
+        assigns: false,
       };
     }
   }

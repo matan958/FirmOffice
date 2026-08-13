@@ -10,11 +10,10 @@ import {
 } from 'firebase/firestore';
 import { httpsCallable } from 'firebase/functions';
 import { db, functions } from '@/lib/firebase';
-import { COLLECTIONS, dropAddress, toTaxId } from '@shared';
+import { COLLECTIONS, toTaxId } from '@shared';
 import type { ClientDoc, CreateClientRequest, CreateClientResponse } from '@shared';
 import { ErrorNote, Field, SubmitButton, Spinner } from '@/features/auth/AuthCard';
-import { useIngestState } from '@/features/inbox/useIngestState';
-import { reclassifyClientFn } from '@/features/inbox/actions';
+import { reclassifyClientFn, setClientEmailFn } from '@/features/inbox/actions';
 
 type Row = ClientDoc & { id: string };
 
@@ -33,7 +32,6 @@ const createClientFn = httpsCallable<CreateClientRequest, CreateClientResponse>(
 export default function ClientsPage() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [listError, setListError] = useState<string | null>(null);
-  const mailbox = useIngestState()?.mailbox ?? null;
 
   useEffect(() => {
     const q = query(collection(db, COLLECTIONS.clients), orderBy('name'));
@@ -51,8 +49,8 @@ export default function ClientsPage() {
     <main className="mx-auto max-w-4xl px-6 py-8">
       <h1 className="text-2xl font-semibold tracking-tight">Clients</h1>
       <p className="mt-1 text-sm text-ink-600">
-        Each client gets a permanent drop address. Give it to them — mail sent there
-        files itself.
+        A client is identified by their email address. Mail from it files itself; mail
+        from anywhere else waits in Unassigned until someone files it.
       </p>
 
       <NewClientForm />
@@ -75,7 +73,12 @@ export default function ClientsPage() {
                     decides income vs expense
                   </span>
                 </th>
-                <th className="px-4 py-2.5 font-medium">Drop address</th>
+                <th className="px-4 py-2.5 font-medium">
+                  Email
+                  <span className="ml-1.5 normal-case tracking-normal text-ink-400">
+                    mail from here files automatically
+                  </span>
+                </th>
                 <th className="px-4 py-2.5 font-medium">Status</th>
                 <th className="px-4 py-2.5 font-medium">Client ID</th>
               </tr>
@@ -106,7 +109,7 @@ export default function ClientsPage() {
                     <TaxIdCell client={c} />
                   </td>
                   <td className="px-4 py-3">
-                    <DropAddress mailbox={mailbox} alias={c.ingestAlias} />
+                    <EmailCell client={c} />
                   </td>
                   <td className="px-4 py-3 capitalize text-ink-600">{c.status}</td>
                   <td className="px-4 py-3 font-mono text-xs break-all text-ink-400">{c.id}</td>
@@ -121,40 +124,106 @@ export default function ClientsPage() {
 }
 
 /**
- * The per-client drop address, with one click to copy it.
+ * The address a client's mail is recognised by, editable in place.
  *
- * Copying matters more than it looks. This address is the top rung of the mapping
- * ladder and the only one immune to a forged sender, but it earns nothing until a
- * client is actually using it — and a hand-retyped `docs+acme7k2@` with one character
- * wrong does not bounce. It silently lands in the plain mailbox and files as
- * Unassigned, which reads as "the address doesn't work".
+ * This is the only thing that files a document automatically: mail from here becomes
+ * this client's, and mail from anywhere else waits in Unassigned. That makes an
+ * unset or mistyped address a silent fault — the client's documents simply keep
+ * arriving unfiled, with nothing on screen explaining why — so it is shown in amber
+ * when missing rather than left blank.
+ *
+ * Saving goes through the setClientEmail callable, not a direct write. Changing this is
+ * three writes that have to agree (the client, the old mapping row, the new one), and
+ * the new address may already belong to somebody else.
  */
-function DropAddress({ mailbox, alias }: { mailbox: string | null; alias: string }) {
-  const [copied, setCopied] = useState(false);
-  const address = dropAddress(mailbox, alias);
+function EmailCell({ client }: { client: Row }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
 
-  if (!address) {
+  async function save() {
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      const res = await setClientEmailFn({ clientId: client.id, email: draft });
+      const d = res.data;
+
+      if (d.conflictWithClientId) {
+        setError(
+          `${draft.trim()} is already mapped to ${d.conflictWithClientName ?? d.conflictWithClientId}. ` +
+            `Nothing was changed.`,
+        );
+        return;
+      }
+
+      setEditing(false);
+      if (d.backfilled > 0) {
+        setNote(`${d.backfilled} waiting document${d.backfilled === 1 ? '' : 's'} filed`);
+      }
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (editing) {
     return (
-      <span className="text-xs text-ink-400" title={`Alias: ${alias}`}>
-        pending — mail ingestion not connected
+      <span className="flex flex-wrap items-center gap-1.5">
+        <input
+          autoFocus
+          type="email"
+          value={draft}
+          disabled={busy}
+          placeholder="danny@acme.co.il"
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void save();
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          className="w-56 rounded-md border border-brand-400 px-2 py-1 text-sm outline-none
+                     focus:ring-2 focus:ring-brand-500/25"
+        />
+        <button
+          onClick={() => void save()}
+          disabled={busy}
+          className="rounded-md bg-brand-600 px-2 py-1 text-xs text-white disabled:opacity-50"
+        >
+          {busy ? <Spinner /> : 'Save'}
+        </button>
+        <button
+          onClick={() => setEditing(false)}
+          className="rounded-md px-1.5 py-1 text-xs text-ink-500 hover:bg-ink-100"
+        >
+          ✕
+        </button>
+        {error && <span className="w-full text-xs text-red-600">{error}</span>}
       </span>
     );
   }
 
   return (
-    <button
-      onClick={() => {
-        void navigator.clipboard.writeText(address).then(() => {
-          setCopied(true);
-          setTimeout(() => setCopied(false), 1500);
-        });
-      }}
-      className="group font-mono text-xs text-ink-600 underline-offset-2 hover:underline"
-      title="Copy"
-    >
-      {address}
-      <span className="ml-2 font-sans text-ink-400">{copied ? 'copied' : 'copy'}</span>
-    </button>
+    <span className="flex flex-wrap items-center gap-2">
+      <button
+        onClick={() => {
+          setDraft(client.primaryContactEmail ?? '');
+          setEditing(true);
+          setNote(null);
+        }}
+        title="Click to edit"
+        className={[
+          'rounded-md px-2 py-1 text-sm transition-colors hover:bg-ink-100',
+          client.primaryContactEmail ? 'text-ink-700' : 'text-amber-700',
+        ].join(' ')}
+      >
+        {client.primaryContactEmail ?? 'not set — mail will not file'}
+      </button>
+      {note && <span className="text-xs text-emerald-700">{note}</span>}
+      {error && <span className="text-xs text-red-600">{error}</span>}
+    </span>
   );
 }
 

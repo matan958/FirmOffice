@@ -720,6 +720,34 @@ export interface ReclassifyClientResponse {
   truncated: boolean;
 }
 
+/**
+ * Sets the one address a client's mail is recognised by.
+ *
+ * A callable rather than a direct write, because changing it is not one edit but three
+ * that must agree: the client record, the OLD `email:` identifier row (which otherwise
+ * keeps quietly filing mail from an address the client no longer uses), and the NEW one
+ * — which may already be claimed by a different client, and must not be stolen from
+ * them silently.
+ *
+ * Passing an empty string clears the address, which leaves the client reachable only by
+ * hand from the Unassigned queue.
+ */
+export interface SetClientEmailRequest {
+  clientId: string;
+  email: string;
+}
+
+export interface SetClientEmailResponse {
+  clientId: string;
+  /** Normalized and stored. Null when cleared. */
+  email: string | null;
+  /** Set when another client already owns that address; nothing was changed. */
+  conflictWithClientId?: string;
+  conflictWithClientName?: string;
+  /** Unassigned documents already waiting from that sender, now filed. */
+  backfilled: number;
+}
+
 export interface PollGmailResponse {
   ok: boolean;
   messagesSeen: number;
