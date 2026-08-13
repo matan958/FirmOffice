@@ -8,6 +8,7 @@ import {
 } from '@shared';
 import type { DocDirection, DocumentDoc, ExtractedFieldSpec } from '@shared';
 import { Spinner } from '@/features/auth/AuthCard';
+import { DIRECTION_SOLID } from '@/features/inbox/DirectionChip';
 import { correctField, setDirection } from '@/features/inbox/actions';
 
 /**
@@ -146,8 +147,11 @@ function DirectionBlock({
               className={[
                 'flex-1 rounded-md px-2 py-1.5 text-xs font-medium transition-colors',
                 'disabled:cursor-not-allowed',
+                // The chosen button wears the direction's own colour, not the brand
+                // accent — otherwise picking הכנסה here shows blue, and the same
+                // document then shows green in the list, which reads as two decisions.
                 active
-                  ? 'bg-brand-600 text-white shadow-sm'
+                  ? `${DIRECTION_SOLID[choice]} shadow-sm`
                   : 'bg-white text-ink-600 ring-1 ring-ink-200 hover:bg-ink-100 disabled:hover:bg-white',
               ].join(' ')}
             >

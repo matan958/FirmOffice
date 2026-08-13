@@ -10,6 +10,8 @@ import MetricsBar from './MetricsBar';
 import MailStatus from './MailStatus';
 import PipelineChip from './PipelineChip';
 import SourceChip from './SourceChip';
+import DirectionChip from './DirectionChip';
+import StatusSelect from './StatusSelect';
 import AssignDialog from './AssignDialog';
 import { useDocuments, type DocRow } from './useDocuments';
 import { setWorkflowStatus } from './actions';
@@ -175,42 +177,6 @@ export default function InboxPage() {
   );
 }
 
-/**
- * Income or expense, at a glance.
- *
- * Colour carries the meaning here, so the list can be scanned without reading: expenses
- * are most of the volume and stay quiet, income stands out, and anything the ladder
- * could not settle is amber — the same amber the Unassigned queue uses, because it is
- * the same kind of thing, a row waiting on a human.
- */
-function DirectionChip({ doc }: { doc: DocRow }) {
-  const c = doc.classification;
-
-  // Absent, not unknown: this document predates classification or has not been read yet.
-  // Saying "—" is honest; showing "לא ידוע" would claim we looked.
-  if (!c) return <span className="text-xs text-ink-300">—</span>;
-
-  const tone =
-    c.direction === 'income'
-      ? 'bg-emerald-50 text-emerald-800 ring-emerald-200'
-      : c.direction === 'expense'
-        ? 'bg-ink-100 text-ink-700 ring-ink-200'
-        : c.direction === 'neither'
-          ? 'bg-ink-50 text-ink-500 ring-ink-200'
-          : 'bg-amber-50 text-amber-900 ring-amber-300';
-
-  return (
-    <span
-      dir="rtl"
-      title={c.reason}
-      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ring-1 ${tone}`}
-    >
-      {DIRECTION_LABEL[c.direction]}
-      {c.source === 'manual' && <span className="text-[10px] opacity-60">ידני</span>}
-    </span>
-  );
-}
-
 function Row({
   row,
   actorUid,
@@ -299,17 +265,11 @@ function Row({
         <PipelineChip doc={row} />
       </td>
       <td className="px-4 py-3">
-        <select
+        <StatusSelect
           value={row.workflowStatus}
           disabled={busy || !actorUid}
-          onChange={(e) => void move(e.target.value as WorkflowStatus)}
-          className="rounded-lg border border-ink-200 bg-white px-2 py-1 text-xs outline-none
-                     focus:border-brand-500 focus:ring-2 focus:ring-brand-500/25 disabled:opacity-60"
-        >
-          <option value="pending">Pending</option>
-          <option value="in_progress">In progress</option>
-          <option value="processed">Processed</option>
-        </select>
+          onChange={(next) => void move(next)}
+        />
         {error && <p className="mt-1 max-w-40 text-xs text-red-600">{error}</p>}
       </td>
     </tr>

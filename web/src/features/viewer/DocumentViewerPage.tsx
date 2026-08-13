@@ -7,9 +7,10 @@ import { db } from '@/lib/firebase';
 import { useSession } from '@/features/auth/AuthProvider';
 import { ErrorNote, Spinner } from '@/features/auth/AuthCard';
 import { COLLECTIONS, SUBCOLLECTIONS } from '@shared';
-import type { ClientDoc, DocumentDoc, PageDoc, WorkflowStatus } from '@shared';
+import type { ClientDoc, DocumentDoc, PageDoc } from '@shared';
 import PipelineChip from '@/features/inbox/PipelineChip';
 import SourceChip from '@/features/inbox/SourceChip';
+import StatusSelect from '@/features/inbox/StatusSelect';
 import AssignDialog from '@/features/inbox/AssignDialog';
 import { assignClient, retryOcrFn, setWorkflowStatus } from '@/features/inbox/actions';
 import { useDocumentPreview } from './useDocumentPreview';
@@ -195,21 +196,13 @@ export default function DocumentViewerPage() {
               </select>
             )}
 
-            <select
+            <StatusSelect
               value={document.workflowStatus}
               disabled={busy || !session}
-              onChange={(e) =>
-                void run(() =>
-                  setWorkflowStatus(document.id, e.target.value as WorkflowStatus, session!.user.uid),
-                )
+              onChange={(next) =>
+                void run(() => setWorkflowStatus(document.id, next, session!.user.uid))
               }
-              className={control}
-              aria-label="Workflow status"
-            >
-              <option value="pending">Pending</option>
-              <option value="in_progress">In progress</option>
-              <option value="processed">Processed</option>
-            </select>
+            />
 
             <button
               disabled={busy}

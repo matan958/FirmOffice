@@ -3,6 +3,7 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { COLLECTIONS, METRICS_DOC_ID } from '@shared';
 import type { MetricsDoc, WorkflowStatus } from '@shared';
+import { STATUS_DOT } from './StatusSelect';
 
 /**
  * Live status badges, driven by ONE onSnapshot on /metrics/global.
@@ -55,6 +56,10 @@ export default function MetricsBar({ active, onSelect, onShowUnassigned }: Metri
           key={s}
           label={STATUS_LABEL[s]}
           count={counts?.[s]}
+          // The same dot as the colour on every row below. Without it these filters are
+          // the one place on the page where a status has no colour, and the code has to
+          // be re-learned from the table each time.
+          dot={STATUS_DOT[s]}
           selected={active === s}
           onClick={() => onSelect(s)}
         />
@@ -91,11 +96,14 @@ export default function MetricsBar({ active, onSelect, onShowUnassigned }: Metri
 function Badge({
   label,
   count,
+  dot,
   selected,
   onClick,
 }: {
   label: string;
   count: number | undefined;
+  /** Tailwind background class for the status dot. Omitted on "All", which is not one. */
+  dot?: string;
   selected: boolean;
   onClick(): void;
 }) {
@@ -104,12 +112,13 @@ function Badge({
       onClick={onClick}
       aria-pressed={selected}
       className={[
-        'rounded-lg border px-3 py-1.5 text-sm transition-colors',
+        'inline-flex items-center rounded-lg border px-3 py-1.5 text-sm transition-colors',
         selected
           ? 'border-brand-600 bg-brand-600 text-white shadow-card'
           : 'border-ink-200 bg-white text-ink-600 shadow-card hover:border-ink-300 hover:text-ink-900',
       ].join(' ')}
     >
+      {dot && <span aria-hidden className={`mr-2 inline-block size-2 rounded-full ${dot}`} />}
       {label}
       <span
         className={[

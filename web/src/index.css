@@ -16,6 +16,15 @@
  * one accent: colour carries meaning here — amber means "a human should look at this",
  * red means "this failed", emerald means "done" — and a second decorative accent would
  * dilute all three.
+ *
+ * Two places spend colour on top of that vocabulary, and both are documented where they
+ * are defined rather than here:
+ *
+ *   • inbox/StatusSelect.tsx — green / amber / red for processed / in progress / pending.
+ *     Pending borrows red without meaning failure, so it is kept to a tint.
+ *   • inbox/DirectionChip.tsx — emerald income, violet expense. Violet is chosen for
+ *     being outside this vocabulary AND outside the brand accent, so the busiest column
+ *     in the table cannot be mistaken for a status or a link.
  */
 
 @theme {
