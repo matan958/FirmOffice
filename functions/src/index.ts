@@ -64,17 +64,17 @@ export { reclassifyClient } from './admin/reclassifyClient.js';
 export { linkIdentifier } from './admin/linkIdentifier.js';
 
 /*
- * The Gmail poller is built and unit-tested but deliberately NOT exported yet.
+ * These declare `secrets: [GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET, GMAIL_REFRESH_TOKEN]`,
+ * and a deploy fails outright if a declared secret has no version in Secret Manager —
+ * which is why they sat commented out until the OAuth setup was finished. If a deploy
+ * ever fails here with "secret has no versions", that is what it means: the secrets
+ * were rotated or deleted, not that the poller is broken.
  *
- * Both functions declare `secrets: [GMAIL_CLIENT_ID, GMAIL_CLIENT_SECRET,
- * GMAIL_REFRESH_TOKEN]`, and a deploy fails outright if a declared secret has no
- * version in Secret Manager. Exporting them before the OAuth setup is done would
- * therefore block the deploy of everything else in this file.
- *
- * To turn Gmail on: follow "Connecting Gmail" in the README, then uncomment.
- *
- *   export { pollGmail, pollGmailNow } from './gmail/poll.js';
+ * `pollGmail` is what creates the Cloud Scheduler job on first deploy. Removing this
+ * export does NOT remove the job — it keeps firing against a function that no longer
+ * exists. Delete the schedule explicitly if this is ever turned off.
  */
+export { pollGmail, pollGmailNow } from './gmail/poll.js';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Milestone map — each export below arrives with its milestone.
