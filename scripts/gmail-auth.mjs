@@ -83,6 +83,31 @@ selecting the text.
   process.exit(1);
 }
 
+// The placeholder from the setup instructions, pasted verbatim. Worth catching by name:
+// left to Google it costs a full browser round trip and a consent grant before failing
+// with "The provided client secret is invalid", which reads like a real credential
+// problem rather than a copy-paste that never happened.
+if (/^[<[]?YOUR[_-]?SECRET[>\]]?$/i.test(clientSecret) || /[<>]/.test(clientSecret)) {
+  console.error(`
+That client secret is the placeholder, not a real value:
+
+  ${clientSecret}
+
+Copy the actual secret from
+https://console.cloud.google.com/auth/clients — open your client, and use the copy
+button beside "Client secret". It begins with GOCSPX-.
+`);
+  process.exit(1);
+}
+
+if (!clientSecret.startsWith('GOCSPX-')) {
+  // A warning, not a failure: secrets minted before ~2021 have no such prefix, and
+  // refusing one outright would block a legitimate older client.
+  console.warn(
+    `\nWarning: client secrets normally begin with "GOCSPX-". Continuing anyway.`,
+  );
+}
+
 console.log(`\nOAuth client belongs to project number ${idMatch[1]}.`);
 console.log('If that is not the project holding your Firebase functions, the client was');
 console.log('created under a different account or project — Google will reject it with');
@@ -142,7 +167,13 @@ function awaitCode(expectedState) {
         finish('Unexpected callback — ignoring.');
         return;
       }
-      finish('Authorized. FirmOffice now has a refresh token for this mailbox.');
+      // Deliberately does NOT claim a token exists. All that has happened is that an
+      // authorization CODE arrived; exchanging it for a refresh token is a separate
+      // request that fails on its own — a wrong client secret being the usual way. This
+      // page used to announce "FirmOffice now has a refresh token for this mailbox"
+      // while the terminal printed the exchange failure, which is the worst kind of
+      // wrong: two surfaces disagreeing, with the reassuring one arriving first.
+      finish('Authorization received. Go back to the terminal — it reports whether the token was issued.');
       resolve(code);
     });
 
