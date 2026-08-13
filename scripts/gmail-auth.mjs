@@ -54,6 +54,41 @@ Get them from https://console.cloud.google.com/apis/credentials :
 }
 
 /**
+ * `<projectNumber>-<random>.apps.googleusercontent.com`.
+ *
+ * Checked here because Google's answer to a client ID it does not recognise is
+ * `401: invalid_client — The OAuth client was not found`, delivered on a sign-in page
+ * after the browser has opened. That message cannot distinguish a truncated paste from
+ * a client created in the wrong project, and it arrives too late and too far from the
+ * command to point at either. The leading digits are the project number, which is the
+ * single most useful thing to see: a client created under a different Google account
+ * carries a different one, and that is invisible in the console until you compare them.
+ */
+const CLIENT_ID_RE = /^(\d+)-[\w-]+\.apps\.googleusercontent\.com$/;
+const idMatch = CLIENT_ID_RE.exec(clientId);
+
+if (!idMatch) {
+  console.error(`
+That does not look like an OAuth client ID:
+
+  ${clientId}
+
+Expected:  <projectNumber>-<random>.apps.googleusercontent.com
+
+The commonest cause is a partial copy — the ".apps.googleusercontent.com" suffix is
+part of the ID, not decoration. Copy it from
+https://console.cloud.google.com/auth/clients using the copy button rather than by
+selecting the text.
+`);
+  process.exit(1);
+}
+
+console.log(`\nOAuth client belongs to project number ${idMatch[1]}.`);
+console.log('If that is not the project holding your Firebase functions, the client was');
+console.log('created under a different account or project — Google will reject it with');
+console.log('"401: invalid_client (The OAuth client was not found)".');
+
+/**
  * Opens a URL in the default browser, per platform. Best effort — the URL is printed too.
  *
  * The `^&` escaping on Windows is not cosmetic. `cmd /c` re-parses everything after it
