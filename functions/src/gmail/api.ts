@@ -59,13 +59,64 @@ export class GmailAuthError extends Error {
 
 let cached: OAuth2Client | undefined;
 
+/**
+ * Secret Manager stores bytes, and a value pasted into `firebase functions:secrets:set`
+ * from a Windows terminal routinely carries a trailing CR, LF or space with it.
+ *
+ * None of that is visible anywhere: not in the console, not in `secrets:get`, not in the
+ * paste itself. OAuth simply answers `invalid_client`, which is the same thing it says
+ * when the credentials are entirely wrong — so the reader goes looking for a wrong value
+ * rather than a right value with an extra byte on the end. The same credentials passed
+ * on a command line work, which makes it look like the deployment is at fault.
+ *
+ * Trimming is safe: none of the three legitimately contains leading or trailing
+ * whitespace.
+ */
+function secret(value: string): string {
+  return value.trim();
+}
+
 function client(): OAuth2Client {
   if (!cached) {
-    cached = new OAuth2Client({
-      clientId: GMAIL_CLIENT_ID.value(),
-      clientSecret: GMAIL_CLIENT_SECRET.value(),
+    const id = secret(GMAIL_CLIENT_ID.value());
+    const clientSecret = secret(GMAIL_CLIENT_SECRET.value());
+    const refreshToken = secret(GMAIL_REFRESH_TOKEN.value());
+
+    /**
+     * What the runtime ACTUALLY loaded, once per cold start.
+     *
+     * `invalid_client` cannot distinguish "wrong value" from "right value, wrong
+     * version pinned" from "right value with a stray byte", and every one of those
+     * looks identical in the console, in `secrets:get`, and in the paste that created
+     * it. Without this line the only way to tell them apart is to change something and
+     * redeploy, which is a guess with a five-minute feedback loop.
+     *
+     * The client ID is not confidential — it travels in plain sight in every OAuth
+     * consent URL — so it is logged whole. The other two are described by shape only:
+     * enough to spot a truncation, a swap or an empty value, and nothing more.
+     */
+    logger.info('gmail: credentials loaded', {
+      clientId: id,
+      clientSecretChars: clientSecret.length,
+      clientSecretLooksRight: clientSecret.startsWith('GOCSPX-'),
+      refreshTokenChars: refreshToken.length,
+      refreshTokenLooksRight: refreshToken.startsWith('1//'),
     });
-    cached.setCredentials({ refresh_token: GMAIL_REFRESH_TOKEN.value() });
+
+    // A doubled paste is the one corruption a prefix check cannot see: GOCSPX-x…GOCSPX-x…
+    // still starts with GOCSPX-, so it passes every shape test while being wrong, and
+    // Google reports it as `invalid_client` — indistinguishable from a value that was
+    // never right at all. Length is the only thing that separates them. Google's secrets
+    // are 35 characters; anything near double that was pasted twice.
+    if (clientSecret.length > 50) {
+      logger.error('gmail: client secret is about twice the expected length', {
+        chars: clientSecret.length,
+        hint: 'A Google client secret is 35 characters. This looks like a doubled paste — re-set GMAIL_CLIENT_SECRET and redeploy.',
+      });
+    }
+
+    cached = new OAuth2Client({ clientId: id, clientSecret });
+    cached.setCredentials({ refresh_token: refreshToken });
   }
   return cached;
 }
